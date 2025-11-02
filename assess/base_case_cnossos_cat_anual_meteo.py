@@ -6,13 +6,67 @@
 # - Barreja meteo CNOSSOS: neutral vs favourable amb p_fav per Ld/Le/Ln
 # - Ponderació estacional (DJF/MAM/JJA/SON) per Ld/Le/Ln → Lden (14/2/8)
 # - SUC acolorits pel Lden total (turbines+preexistent), cercles Ø172 m, creu posició, llegenda distàncies
-
+import argparse, sys
 import numpy as np, rasterio, matplotlib.pyplot as plt, fiona, csv
 from matplotlib.patches import Polygon as MplPolygon, Patch
 from matplotlib.collections import PatchCollection
 from matplotlib.colors import ListedColormap, BoundaryNorm
 from shapely.geometry import Point, box, MultiPolygon, shape
 from matplotlib.gridspec import GridSpec
+import multiprocessing as mp
+import platform
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
+
+# ----------------------- YAML CONFIG SUPPORT -----------------------
+try:
+    import yaml  # PyYAML
+except Exception as e:
+    yaml = None
+
+from typing import Mapping
+
+def _deep_update(dst, src):
+    """Recursively update dict/list/scalars in-place."""
+    if isinstance(dst, dict) and isinstance(src, Mapping):
+        for k, v in src.items():
+            if k in dst and isinstance(dst[k], (dict, list)):
+                dst[k] = _deep_update(dst[k], v)
+            else:
+                dst[k] = v
+        return dst
+    if isinstance(dst, list) and isinstance(src, list):
+        return src  # replace list by default
+    return src
+
+def apply_yaml_overrides(cfg: dict):
+    """Apply top-level keys from YAML onto same-named globals.
+    - If a key matches an existing GLOBAL dict, deep-merge.
+    - Otherwise, replace variable entirely.
+    """
+    g = globals()
+    for k, v in cfg.items():
+        if k in g:
+            try:
+                if isinstance(g[k], dict) and isinstance(v, Mapping):
+                    g[k] = _deep_update(g[k], v)
+                else:
+                    g[k] = v
+            except Exception:
+                g[k] = v
+        else:
+            g[k] = v  # allow introducing new config variables
+
+def load_config_yaml(path: str) -> dict:
+    if yaml is None:
+        raise RuntimeError("PyYAML no instal·lat: pip install pyyaml")
+    with open(path, 'r', encoding='utf-8') as fh:
+        cfg = yaml.safe_load(fh) or {}
+    if not isinstance(cfg, dict):
+        raise ValueError("El YAML de configuració ha de tenir un mapping al nivell superior")
+    return cfg
+
+
 
 # ----------------------- FITXERS D’ENTRADA -----------------------
 # console command to prepare oficial DEM tiff to reduce processing data to avoid overflow
@@ -42,57 +96,29 @@ DEM_PATH = "DEM_clip_5m-rpglobal.tif" # DEM 5m tiff retallat a Sant Roc + Martí
 GML_PATH = "MUC_classificacio.gml"      # Classificació de sòl (ha de contenir SUC)
 
 # ----------------------- ÀMBIT (UTM) -----------------------
-# Ambit Sant Roc
-#XMIN, YMIN, XMAX, YMAX = 346000, 4596000, 354000, 4601000
+XMIN, YMIN, XMAX, YMAX = 344500, 4595500, 353500, 4600500
 # Ambit Sant Roc + Martí
 #xmin, ymin, xmax, ymax = 346000, 4596000, 354000, 4604000
 # Ambit Sant Roc + Martí + Gardeny
-#XMIN, YMIN, XMAX, YMAX = 340000, 4594000, 355000, 4604000
-XMIN, YMIN, XMAX, YMAX = 340000, 4604000, 355000, 4594000
+#XMIN, YMIN, XMAX, YMAX = 340000, 4604000, 355000, 4594000
 
-BBOX_POLY = box(XMIN, YMIN, XMAX, YMAX)
+# BBOX_POLY = box(XMIN, YMIN, XMAX, YMAX)
 
 # ----------------------- TURBINES -----------------------
-# Sant Roc
-#TURBINES = [
-#    ("YA3",347327,4598444),("Y09",348363,4598715),("Y05",348718,4598000),
-#    ("Y06",349377,4597537),("Y07",350011,4597190),("Y8B",350526,4596948)
-#]
-# Sant Roc + Martí
-#TURBINES = [
-#    ("MA1",350231,4600392),("MA5",349472,4601002),("MA4",349182,4601683),
-#    ("MA6",349896,4601452),("MA8",350917,4601735),("MA10",350509,4602281),    
-#    ("YA3",347327,4598444),("Y09",348363,4598715),("Y05",348718,4598000),
-#    ("Y06",349377,4597537),("Y07",350011,4597190),("Y8B",350526,4596948)
-#]
+TURBINES = []
 
-# Sant Roc + Martí + Gardeny
-TURBINES = [
-    ("MA1",350231,4600392),("MA5",349472,4601002),("MA4",349182,4601683),
-    ("MA6",349896,4601452),("MA8",350917,4601735),("MA10",350509,4602281),    
-    ("YA3",347327,4598444),("Y09",348363,4598715),("Y05",348718,4598000),
-    ("Y06",349377,4597537),("Y07",350011,4597190),("Y8B",350526,4596948),
-    ("XA3",343654,4601050),("XA4B",344259,4601624),("XA5",345235,4601500),
-    ("XA7B",345740,4600652),("XB2",346931,4600156),("YA1", 346165,4599897)
-]
-
-ROTOR_DIAM = 172.0
-RADIUS = ROTOR_DIAM/2.0
 RADIUS_NORM_CAT = 500.0
 RADIUS_NORM_ESP = 1000.0
-H_SOURCE = 112.0  # m (nacelle)
 H_RECEIVER = 4.0  # m (façana)
 FACANA_DB = 3.0   # +3 dB a façana
-
+N_PROF_PER_KM = 60
 # ----------------------- Limits d'immissió -----------------------
 # Límits (configurable): dos escenaris habituals
 limits_sets = {
-    "Sensibles_55/50/45": [55.0, 50.0, 45.0],
-    "Sensibles_60/60/50": [60.0, 60.0, 50.0],  # ← nou perfil
-    "Generals_65/60/55":  [65.0, 60.0, 55.0],
+    "Sens_55": [55.0, 50.0, 45.0],
+    "Sens_60": [60.0, 60.0, 50.0],  # ← nou perfil
+    "Sens_65":  [65.0, 60.0, 55.0],
 }
-active_limits_key = "Sensibles_60/60/50"  # ← usa aquest
-LIMITS = limits_sets[active_limits_key]
 
 
 # ----------------------- RECEPTORS (nuclis) + PREEXISTENT Ld/Le/Ln -----------------------
@@ -102,173 +128,38 @@ LIMITS = limits_sets[active_limits_key]
 # Alçada del microfòn, Façana i orientació de la façana, categoria urbanístaca i limits aplicables, tipus de sòl, 
 # distància a reflectors
 # A totes les mesures cal afegir 0.5dB i desprès agafar l'integre més a prop segons normativa
-RECEIVERS = {
-    "La Pobla de Ferran": {
-        "pre": {"Ld": 40.5, "Le": 40.5, "Ln": 45.6},  # opcional (fallback)
-        "points": [
-            # Projecte Sant Roc            
-            {"id":"LPF-1","x":349013,"y":4599960,"h_rec":4.0,"facade_db":3.0,
-             "ambient":{"Ld":41.0,"Le":41.0,"Ln":46.0}},
-            # Pobla de Ferran Projecte Martí
-            # 349013 4599960 nit 40,5 40,5 40,5 dia 32 32 32 (identic Sant Roc)
-            #{"id":"LPF-1","x":349013,"y":4599960,"h_rec":4.0,"facade_db":3.0,
-            # "ambient":{"Ld":40.5,"Le":40.5,"Ln":45.6}},
-        ]
-    },
-    "Passanant": {
-        "pre": {"Ld": 46.1, "Le": 46.1, "Ln": 32.7},
-        "points": [
-            # Valors estimats
-            {"id":"PAS-1","x":349782,"y":4599406,"h_rec":4.0,"facade_db":3.0,
-             "ambient":{"Ld":55.0,"Le":53.0,"Ln":49.0}},
-            #Passanant Projecte Martí
-            # Passanant 349455 4599284 nit 36,4 36,4 36,4 dia 62,9 62,9 62,9
-            {"id":"PAS-2","x":349455,"y":4599284,"h_rec":4.0,"facade_db":3.0,
-             "ambient":{"Ld":63.0,"Le":63.0,"Ln":37.0}},
-            #Passanant Projecte Sant Roc
-            # Passanant 349455 4599284 nit 32.7 32.7 32.7 dia 46.1 46.1 46.1
-            {"id":"PAS-3","x":349455,"y":4599284,"h_rec":4.0,"facade_db":3.0,
-             "ambient":{"Ld":47.0,"Le":47.0,"Ln":33.0}},
-        ]
-    },
-    "Glorieta": {
-        "pre": {"Ld": 41.9, "Le": 41.9, "Ln": 52.5},
-        "points": [
-            # Projecte Sant Roc
-            {"id":"GLO-1","x":350214,"y":4597975,"h_rec":4.0,"facade_db":3.0,
-             "ambient":{"Ld":42.0,"Le":42.0,"Ln":53.0}},
-            # Cal Talaia
-            {"id":"GLO-2","x":350170,"y":4597975,"h_rec":4.0,"facade_db":3.0,
-             "ambient":{"Ld":52.0,"Le":50.0,"Ln":49.0}},
-        ]
-    },
-    "La Sala de Comalats": {
-        "pre": {"Ld": 45.4, "Le": 45.4, "Ln": 57.4},
-        "points": [
-            # Projecte Sant Roc
-            {"id":"LSC-1","x":351251,"y":4597853,"h_rec":4.0,"facade_db":3.0,
-             "ambient":{"Ld":46.0,"Le":46.0,"Ln":58.0}},
-            # Estimat
-            {"id":"LSC-2","x":351251,"y":4597853,"h_rec":4.0,"facade_db":3.0,
-             "ambient":{"Ld":53.0,"Le":52.0,"Ln":51.0}},
-        ]
-    },
-    "Belltall": {
-        "pre": {"Ld": 51.3, "Le": 51.3, "Ln": 59.1},
-        "points": [
-            # Projecte Sant Roc
-            {"id":"BEL-1","x":348485,"y":4596665,"h_rec":4.0,"facade_db":3.0,
-             "ambient":{"Ld":52.0,"Le":52.0,"Ln":60.0}},
-            # Estimat ETRS89 - UTM31N: 348656.38, 4596434.92
-            {"id":"BEL-2","x":348656,"y":4596434,"h_rec":4.0,"facade_db":3.0,
-             "ambient":{"Ld":55.0,"Le":52.0,"Ln":49.0}},
-        ]
-    },
-    "Guimerà": {
-        "pre": {"Ld": 49.0, "Le": 48.0, "Ln": 47.0},
-        "points": [
-            # Projecte Martí
-            {"id":"Gui-1","x":348936,"y":4602736,"h_rec":4.0,"facade_db":3.0,
-             "ambient":{"Ld":49.0,"Le":48.0,"Ln":47.0}},
-        ]
-    },
-    "Forès": {
-        "pre": {"Ld": 47.4, "Le": 47.4, "Ln": 47.3},
-        "points": [
-            # Projecte Sant Roc
-            {"id":"For-1","x":352854,"y":4595139,"h_rec":4.0,"facade_db":3.0,
-             "ambient":{"Ld":48.0,"Le":48.0,"Ln":48.0}},
-        ]
-    },
-    "Rocallaura": {
-        "pre": {"Ld": 47.4, "Le": 47.4, "Ln": 47.3},
-        "points": [
-            # Projecte Sant Roc
-            {"id":"Roc-1","x":345461,"y":4596767,"h_rec":4.0,"facade_db":3.0,
-             "ambient":{"Ld":46.0,"Le":46.0,"Ln":46.0}},
-            # Projecte Gardeny
-            {"id":"Roc-1","x":345461,"y":4596767,"h_rec":4.0,"facade_db":3.0,
-             "ambient":{"Ld":56.0,"Le":56.0,"Ln":53.0}},
-        ]
-    },
-    "Vallfogona": {
-        "pre": {"Ld": 46.1, "Le": 46.1, "Ln": 46.1},
-        "points": [
-            # Projecte Martí
-            {"id":"Valf-1","x":352660,"y":4602743,"h_rec":4.0,"facade_db":3.0,
-             "ambient":{"Ld":47.0,"Le":47.0,"Ln":47.0}},
-        ]
-    },
-    "Vallbona": {
-        "pre": {"Ld": 36.9, "Le": 36.7, "Ln": 35.6},
-        "points": [
-            # Projecte Gardeny
-            {"id":"Valb-1","x":340592,"y":4599036,"h_rec":4.0,"facade_db":3.0,
-             "ambient":{"Ld":37.0,"Le":37.0,"Ln":36.0}},
-        ]
-    },
-    "Rocafort": {
-        "pre": {"Ld": 40.4, "Le": 40.4, "Ln": 32.2},
-        "points": [
-            # Projecte Gardeny
-            {"id":"Roc-1","x":341313,"y":4601854,"h_rec":4.0,"facade_db":3.0,
-             "ambient":{"Ld":41.0,"Le":41.0,"Ln":33.0}},
-        ]
-    },
-    "Nalec": {
-        "pre": {"Ld": 35.8, "Le": 35.8, "Ln": 24.9},
-        "points": [
-            # Projecte Gardeny
-            {"id":"Nal-1","x":342846,"y":4602553,"h_rec":4.0,"facade_db":3.0,
-             "ambient":{"Ld":36.0,"Le":36.0,"Ln":25.0}},
-        ]
-    },
-    "Ciutadilla": {
-        "pre": {"Ld": 49.4, "Le": 49.4, "Ln": 26.7},
-        "points": [
-            # Projecte Gardeny
-            {"id":"Ciu-1","x":344945,"y":4602536,"h_rec":4.0,"facade_db":3.0,
-             "ambient":{"Ld":50.0,"Le":50.0,"Ln":27.0}},
-        ]
-    },
-    "C14": {
-        "pre": {"Ld": 43.9, "Le": 43.9, "Ln": 35.0},
-        "points": [
-            # Projecte Gardeny
-            {"id":"C14-1","x":345840,"y":4599548,"h_rec":4.0,"facade_db":3.0,
-             "ambient":{"Ld":44.0,"Le":44.0,"Ln":36.0}},
-        ]
-    },
+RECEIVERS = {}
     
-    # A tots els valors mesurats cal afegir 0.5dB i agafar l'integre més pròxim després segons normativa
-    # Projecte Sant Roc
-    # 6. Forès 352854 4595139 Nit 47,3 47,3 47,3 Dia 47,4 47,4 47,4
-    
-    # Projecte Martí
-    # 4. Vallfogana del Riucorb 352660 4602743 Nit 32,7 32,7 32,7 Dia 46,1 46,1 46,1
-    # 5. Rocallaura  345461 4596767 Nit 47.3 47,3 47,3 Dia 45,4 45,4 45,4
-    
-    # Projecte Gardeny Mesuraments Fake Promotor
-    # 1. Vallbona de les Monges 340592 4599036 nit: 35,6 35,6 35,6 dia 36,9 36,7 36,9
-    # 2. Rocafort de Vallbona 341313 4601854 nit 40,4 40,4 40,4 dia 58.0 32.0 32.0
-    # 3. Nalec 342846 4602553 nit 24,9 24,9 24,9 dia 35,8 35,8 35,8
-    # 4. Ciutadilla 344945 4602536 nit 26,7 26,7 26,7 dia 49,4 35,8 49,4
-    # 5. C14 345840 4599548 nit 35 35 35 dia 50,7 43,9 43,9
-    # 6. Rocallaura  345461 4596767 nit 52,5 52,5 52,5 dia 55,4 55,4 55,4
-}
+# A tots els valors mesurats cal afegir 0.5dB i agafar l'integre més pròxim després segons normativa
+# Projecte Sant Roc
+# 6. Forès 352854 4595139 Nit 47,3 47,3 47,3 Dia 47,4 47,4 47,4
+
+# Projecte Martí
+# 4. Vallfogana del Riucorb 352660 4602743 Nit 32,7 32,7 32,7 Dia 46,1 46,1 46,1
+# 5. Rocallaura  345461 4596767 Nit 47.3 47,3 47,3 Dia 45,4 45,4 45,4
+
+# Projecte Gardeny Mesuraments Fake Promotor
+# 1. Vallbona de les Monges 340592 4599036 nit: 35,6 35,6 35,6 dia 36,9 36,7 36,9
+# 2. Rocafort de Vallbona 341313 4601854 nit 40,4 40,4 40,4 dia 58.0 32.0 32.0
+# 3. Nalec 342846 4602553 nit 24,9 24,9 24,9 dia 35,8 35,8 35,8
+# 4. Ciutadilla 344945 4602536 nit 26,7 26,7 26,7 dia 49,4 35,8 49,4
+# 5. C14 345840 4599548 nit 35 35 35 dia 50,7 43,9 43,9
+# 6. Rocallaura  345461 4596767 nit 52,5 52,5 52,5 dia 55,4 55,4 55,4
 
 # ----------------------- EMISSIÓ ESPECTRAL (Nordex N175 oficial) -----------------------
 BANDS = np.array([63,125,250,500,1000,2000,4000,8000], float)  # Hz
-LwA_OVB = np.array([91.8,98.6,102.0,102.5,103.4,101.3,92.0,75.5], float)  # dB (A), per banda
+# LwA_OVB = np.array([91.8,98.6,102.0,102.5,103.4,101.3,92.0,75.5], float)  # dB (A), per banda
 
 # ----------------------- CNOSSOS: p_fav (prob. favourable) per període -----------------------
-P_FAV = {"Ld": 0.30, "Le": 0.45, "Ln": 0.60}  # AJUSTA segons climatologia local
+P_FAV = {
+    # "Ld": 0.30, "Le": 0.45, "Ln": 0.60
+}  # AJUSTA segons climatologia local
 
 # ----------------------- Ponderació estacional (suma=1 per clau) -----------------------
 W_SEASON = {
-    "Ld": {"DJF":0.25,"MAM":0.25,"JJA":0.30,"SON":0.20},
-    "Le": {"DJF":0.25,"MAM":0.25,"JJA":0.25,"SON":0.25},
-    "Ln": {"DJF":0.30,"MAM":0.25,"JJA":0.20,"SON":0.25},
+#    "Ld": {"DJF":0.25,"MAM":0.25,"JJA":0.30,"SON":0.20},
+#    "Le": {"DJF":0.25,"MAM":0.25,"JJA":0.25,"SON":0.25},
+#    "Ln": {"DJF":0.30,"MAM":0.25,"JJA":0.20,"SON":0.25},
 }
 
 # ----------------------- Paràmetres CNOSSOS: sòl -----------------------
@@ -281,12 +172,16 @@ GROUND_GR = 0.2   # sòl tou 0.8; sòl mixt: 0.5 (prop del receptor); sòl dur, 
 
 # ----------------------- PERFILS METEO (Sta. Coloma XEMA per T; bellcam per HR) -----------------------
 PRESS_KPA = 97.0  # ~500 a 800 m
-TEMP_XEMA = {"DJF": 6.0, "MAM": 12.0, "JJA": 22.0, "SON": 14.0}
-HR_BELLCAM = {"DJF": 78.0, "MAM": 68.0, "JJA": 58.0, "SON": 72.0}
+TEMP_XEMA = {
+#    "DJF": 6.0, "MAM": 12.0, "JJA": 22.0, "SON": 14.0
+}
+HR_LOCUS = {
+#    "DJF": 78.0, "MAM": 68.0, "JJA": 58.0, "SON": 72.0
+}
 TEMP_INVTERM = 4.0 # Tenim molta inversió tèrmica a Passanant, Forès i els inverns són cada vegada menys freds...
 TEMP_CANVI = 0.0 # A l'estiu les temperatures apujen cada vegada més...
 
-# Ignorar excedències (soroll) del DEM, no aplicar més d'un metro
+# Ignorar excedències (soroll) del DEM, no aplicar més d'un metr3
 TOL_M = 0.5
 
 
@@ -309,13 +204,13 @@ def build_profiles(set_name):
     for season in ["DJF","MAM","JJA","SON"]:
         T = TEMP_XEMA[season]
         if set_name == "robust":
-            RH = _cap(HR_BELLCAM[season] + 10.0, 25.0, 95.0)
+            RH = _cap(HR_LOCUS[season] + 10.0, 25.0, 95.0)
             T  = T + TEMP_INVTERM  # opcional per minimitzar absorció
         elif set_name == "sec":
-            RH = _cap(HR_BELLCAM[season] - 15.0, 25.0, 95.0)
+            RH = _cap(HR_LOCUS[season] - 15.0, 25.0, 95.0)
             T  = T - TEMP_CANVI  # opcional per maximitzar absorció
         else:  # central
-            RH = _cap(HR_BELLCAM[season], 25.0, 95.0)
+            RH = _cap(HR_LOCUS[season], 25.0, 95.0)
         profs.append({"name": season, "T": T, "RH": RH, "P": PRESS_KPA})
     return profs
 
@@ -410,12 +305,14 @@ def deygout_multi_edge_diffraction(xt, yt, xr, yr, h_source, h_receiver, bands_h
 def partition_path_lengths(r3d, r2d, src_near=30.0, rec_near=30.0):
     rs = min(r2d/2.0, src_near); rr = min(r2d/2.0, rec_near); rm = max(r2d - rs - rr, 0.0)
     scale = r3d / max(r2d, 1e-6); return rs*scale, rm*scale, rr*scale
+
 def ground_term_db(f_hz, r_m, G=0.6):
     r_eff = np.maximum(r_m, 1.0)
     base_soft = 6.0 * (1.0 - np.exp(-r_eff/400.0)) * (f_hz/1000.0)**0.15
     base_soft = np.clip(base_soft, 0.0, 8.0)
     base_hard = 0.6 * (1.0 - np.exp(-r_eff/600.0))
     return (1.0 - G) * base_hard + G * base_soft
+
 def cnossos_ground_attenuation_per_band(r3d, r2d, bands_hz, Gs=0.0, Gm=0.6, Gr=0.8):
     rs, rm, rr = partition_path_lengths(r3d, r2d)
     out = []
@@ -448,10 +345,18 @@ def meteo_correction(r2d_vec, bands_hz, mode="favourable"):
 # ----------------------- UTILITATS CNOSSOS -----------------------
 def combine_energy(L1, L2):
     return 10*np.log10(10**(L1/10.0) + 10**(L2/10.0))
+
+# normativa catalana horaris
 def Lden_from_cat(Ld, Le, Ln):
     # 14/2/8 (Catalunya): +5 dB vespre, +10 dB nit
     num = 14*10**(Ld/10.0) + 2*10**((Le+5.0)/10.0) + 8*10**((Ln+10.0)/10.0)
     return 10*np.log10(num/24.0)
+
+# normativata europea:
+#def Lden_from_cat(Ld, Le, Ln):
+#    num = 12.0*10**(Ld/10.0) + 4.0*10**((Le+5.0)/10.0) + 8.0*10**((Ln+10.0)/10.0)
+#    return 10.0*np.log10(num/24.0)
+
 def mix_nf(Lneu, Lfav, p):
     return 10*np.log10(p*10**(Lfav/10.0) + (1.0-p)*10**(Lneu/10.0) + 1e-30)
 
@@ -471,14 +376,15 @@ Z_GRID = sample_dem(XX, YY)
 
 # ----------------------- LLEGIR SUC -----------------------
 SUC_GEOMS = []
-with fiona.open(GML_PATH) as src:
-    for feat in src:
-        if not feat["geometry"]: continue
-        props = feat.get("properties") or {}
-        if props.get("CODI_CLAS_MUC") == "SUC":
-            geom = shape(feat["geometry"])
-            inter = geom.intersection(BBOX_POLY)
-            if not inter.is_empty: SUC_GEOMS.append(inter)
+def load_suc_geoms():
+    with fiona.open(GML_PATH) as src:
+        for feat in src:
+            if not feat["geometry"]: continue
+            props = feat.get("properties") or {}
+            if props.get("CODI_CLAS_MUC") == "SUC":
+                geom = shape(feat["geometry"])
+                inter = geom.intersection(BBOX_POLY)
+                if not inter.is_empty: SUC_GEOMS.append(inter)
 
 # ----------------------- CORE: càlcul per un conjunt meteo -----------------------
 def alpha_per_profile(bands_hz, prof):
@@ -486,8 +392,22 @@ def alpha_per_profile(bands_hz, prof):
 
 def lp_map_per_band_with_alpha(alpha_f_loc, mode_meteo):
     Lp_sum = np.zeros(XX.shape + (len(BANDS),), float)
-    for (tname, xt, yt) in TURBINES:
-        z_s = float(sample_dem(np.array([xt]), np.array([yt]))); hs = z_s + H_SOURCE
+    for t in TURBINES:
+        tname, xt, yt, lat, lon, plat_h, hub_h, rotor_d, shade_corr, cut_in, cut_out, model, power, lwa_ovb = (
+            t["id"], t["x"], t["y"], t.get("lat"), t.get("lon"),
+            t.get("elev_platform_m", 0.0), t.get("hub_height_m", 112.0),
+            t.get("rotor_diam_m", 172.0), t.get("solidity", 0.5),
+            t.get("cut_in_ms", 3.0), t.get("cut_out_ms", 25.0),
+            t.get("model", ""), t.get("rated_power_MW", 0.0),
+            t.get("LwA_octave_dB", [91.8, 98.6, 102.0, 102.5, 103.4, 101.3, 92.0, 75.5])
+        )
+        
+        t_LwA_OVB = np.array(lwa_ovb, float)  # dB (A), per banda
+        
+        #Lp_sum = np.zeros(XX.shape + (len(t_BANDS),), float)
+        
+        
+        z_s = float(sample_dem(np.array([xt]), np.array([yt]))); hs = z_s + hub_h
         hr = Z_GRID + H_RECEIVER
         r2d = np.hypot(XX - xt, YY - yt); r3d = np.hypot(r2d, (hs - hr)); r3d = np.maximum(r3d, 1.0)
         Adiv = 20*np.log10(r3d) + 11.0
@@ -498,9 +418,10 @@ def lp_map_per_band_with_alpha(alpha_f_loc, mode_meteo):
             for j in range(XX.shape[1]):
                 
                 Adiff[i,j,:] = deygout_multi_edge_diffraction(
-                    xt, yt, XX[i, j], YY[i, j], H_SOURCE, H_RECEIVER, BANDS, sample_dem, n_prof=64
+                    xt, yt, XX[i, j], YY[i, j], hub_h, H_RECEIVER, BANDS, sample_dem, n_prof=64
                 )
-
+        
+        #alpha_f_loc = alpha_per_profile(t_BANDS, prof)
         # Absorció i sòl
         Aatm = np.zeros_like(Adiff)
         for ib in range(len(BANDS)): Aatm[..., ib] = alpha_f_loc[ib] * r3d
@@ -512,7 +433,7 @@ def lp_map_per_band_with_alpha(alpha_f_loc, mode_meteo):
 
         # Nivell per banda sense meteo + meteo
         Lp_nb = np.zeros_like(Adiff)
-        for ib, Lw in enumerate(LwA_OVB):
+        for ib, Lw in enumerate(t_LwA_OVB):
             Lp_nb[..., ib] = Lw - Adiv - Aatm[..., ib] - Adiff[..., ib] - Agr[..., ib]
 
         dmet = meteo_correction(r2d.reshape(-1), BANDS, mode=mode_meteo)\
@@ -569,18 +490,27 @@ def LpA_point_annual(x, y, h_rec_m, facade_db, profiles):
     # calcula Ld/Le/Ln anuals (turbines) al receptor (x,y) amb h_rec_m específic
     def point_mode(alpha_f, mode):
         acc = 0.0
-        for (tname, xt, yt) in TURBINES:
+        for t in TURBINES:
+            tname, xt, yt, lat, lon, plat_h, hub_h, rotor_d, shade_corr, cut_in, cut_out, model, power, lwa_ovb = (
+                t["id"], t["x"], t["y"], t.get("lat"), t.get("lon"),
+                t.get("elev_platform_m", 0.0), t.get("hub_height_m", 112.0),
+                t.get("rotor_diam_m", 172.0), t.get("solidity", 0.5),
+                t.get("cut_in_ms", 3.0), t.get("cut_out_ms", 25.0),
+                t.get("model", ""), t.get("rated_power_MW", 0.0),
+                t.get("LwA_octave_dB", [91.8, 98.6, 102.0, 102.5, 103.4, 101.3, 92.0, 75.5])
+            )        
+            t_LwA_OVB = np.array(lwa_ovb, float)  # dB (A), per banda
             z_s = float(sample_dem(np.array([xt]), np.array([yt])))
             z_r = float(sample_dem(np.array([x]), np.array([y])))
-            hs = z_s + H_SOURCE
+            hs = z_s + hub_h
             hr = z_r + h_rec_m  # <--- altura del receptor específica
             r2d = np.hypot(x - xt, y - yt)
             r3d = np.hypot(r2d, (hs - hr)); r3d = max(r3d, 1.0)
             Adiv = 20*np.log10(r3d) + 11.0
-            Adiff = deygout_multi_edge_diffraction(xt, yt, x, y, H_SOURCE, h_rec_m, BANDS, sample_dem, n_prof=128)
+            Adiff = deygout_multi_edge_diffraction(xt, yt, x, y, hub_h, h_rec_m, BANDS, sample_dem, n_prof=128)
             Aatm = alpha_f * r3d
             Agr  = cnossos_ground_attenuation_per_band(r3d, r2d, BANDS, Gs=GROUND_GS, Gm=GROUND_GM, Gr=GROUND_GR)
-            Lp_nb = LwA_OVB - Adiv - Aatm - Adiff - Agr
+            Lp_nb = t_LwA_OVB - Adiv - Aatm - Adiff - Agr
             dmet = meteo_correction(np.array([r2d]), BANDS, mode=mode)[0]
             Lp_b = Lp_nb + dmet
             acc += np.sum(10**(Lp_b/10.0))
@@ -631,8 +561,8 @@ def plot_los_on_map(res, ax, color_ok="#2ca02c", color_bad="#d62728", linestyle=
         return
 
     # index de turbines per nom
-    tdict = {nm: (x, y) for (nm, x, y) in TURBINES}
-
+    #tdict = {nm: (x, y) for (nm, x, y, lat, lon, plat_h, hub_h, rotor_d, shade_corr, cut_in, cut_out, model, power) in TURBINES}
+    tdict = {t["id"]: (t["x"], t["y"]) for t in TURBINES}
     ok_count = 0
     bad_count = 0
     for r in res:
@@ -661,17 +591,142 @@ def plot_los_on_map(res, ax, color_ok="#2ca02c", color_bad="#d62728", linestyle=
         Patch(facecolor=color_ok, edgecolor="none", label=f"LOS clara ({ok_count})", alpha=alpha),
         Patch(facecolor=color_bad, edgecolor="none", label=f"LOS defracció ({bad_count})", alpha=alpha),
     ]
-    ax.legend(handles=handles, title=f"Línia de visió (LOS) a {H_SOURCE}m", loc="lower right", frameon=True, framealpha=0.9, fontsize=9)
+    ax.legend(handles=handles, title=f"Línia de visió (LOS)", loc="lower right", frameon=True, framealpha=0.9, fontsize=9)
 
 # snippet per comprovar obstacles entre buc i receptor per un aerogenerador i un receptor en concret
 # Exemples: 
 # res = check_los_multi("Belltall") dona los per tots els aerogeneradors i tots els receptors per Belltall
 # res = check_los_multi("Belltall", rec_id="BEL-1") dona los per receptor amb id BEL-1 i totes les turbines
 # res = check_los_multi("Glorieta", tnames=["YA3","Y07"], tol_m=1.0, n_prof_per_km=60) dona sol per tots els receptors de Glorieta pels aerogeneradors especificats, marge de tolerància sobre DEM de 1m i densidad més alta de punts de comprobació
-def check_los_multi(
+
+# ----------------------- NUMBA LOS FAST-PATH -----------------------
+# Enable with USE_NUMBA: true in YAML.
+try:
+    from numba import njit
+except Exception:
+    njit = None
+
+# DEM grid and inverse affine transform coefficients
+DEM_ARRAY = None
+INV_A0 = INV_A1 = INV_A2 = INV_A3 = INV_A4 = INV_A5 = None
+
+def _load_dem_to_memory():
+    """Load DEM into memory and store inverse affine parameters for fast XY->RC mapping."""
+    global DEM_ARRAY, INV_A0, INV_A1, INV_A2, INV_A3, INV_A4, INV_A5
+    if DEM_ARRAY is not None:
+        return
+    with rasterio.open(DEM_PATH) as ds:
+        DEM_ARRAY = ds.read(1)  # assume band 1
+        inv = ~ds.transform  # inverse Affine: (col,row) = inv * (x,y)
+        INV_A0, INV_A1, INV_A2, INV_A3, INV_A4, INV_A5 = inv.a, inv.b, inv.c, inv.d, inv.e, inv.f
+
+def _xy_to_rowcol_fast(x, y):
+    """Use inverse affine to map projected coords to (row, col) indices (nearest)."""
+    col = INV_A0 * x + INV_A1 * y + INV_A2
+    row = INV_A3 * x + INV_A4 * y + INV_A5
+    return int(round(row)), int(round(col))
+
+# Numba kernels (if available)
+if njit is not None:
+    @njit
+    def _in_bounds(arr, r, c):
+        return (r >= 0) and (c >= 0) and (r < arr.shape[0]) and (c < arr.shape[1])
+
+    @njit
+    def _los_max_exceed_numba(DEM, row0, col0, z0, row1, col1, z1, max_steps=4096):
+        """Returns maximum (terrain - line) along the segment. >0 means blocked."""
+        dr = row1 - row0
+        dc = col1 - col0
+        steps = int(max(abs(dr), abs(dc)))
+        if steps < 1:
+            steps = 1
+        if steps > max_steps:
+            steps = max_steps
+        stepr = dr / steps
+        stepc = dc / steps
+        max_exceed = -1e9
+        for k in range(1, steps):
+            rr = int(round(row0 + stepr * k))
+            cc = int(round(col0 + stepc * k))
+            if not _in_bounds(DEM, rr, cc):
+                continue
+            z_terr = DEM[rr, cc]
+            # Linear interpolation of the line height
+            z_line = z0 + (z1 - z0) * (k / steps)
+            diff = z_terr - z_line
+            if diff > max_exceed:
+                max_exceed = diff
+        if max_exceed == -1e9:
+            max_exceed = -1e9  # no samples, treat as clear
+        return max_exceed
+
+def check_los_multi_numba(nuc_name: str, rec_id: str | None = None,
+                          h_rec_override: float | None = None,
+                          tol_m: float = 0.5, n_prof_per_km: int = 40):
+    """
+    Numba fast-path LOS check:
+      - Loads DEM to memory once.
+      - For each (WT, receptor) computes max exceedance (terrain - line).
+      - Returns list of dicts: {'turbina','receptor','dist_m','h_max_exced_m','LOS_clara'}.
+    """
+    if njit is None:
+        raise RuntimeError("Numba no disponible. Instal·la 'numba' o desactiva USE_NUMBA.")
+    _load_dem_to_memory()
+    # Build turbine list (id, x, y, hub height, platform elev)
+    tlist = []
+    for t in TURBINES:
+        if isinstance(t, dict):
+            nm = t.get("id") or t.get("name") or "WT"
+            tx, ty = t["x"], t["y"]
+            hub = float(t.get("hub_height_m", 112.0))
+            plat = float(t.get("elev_platform_m", 0.0))
+        else:
+            # Fallback: tuple legacy (nm, x, y, ..., hub, ...)
+            nm, tx, ty = t[0], t[1], t[2]
+            hub = float(t[6]) if len(t) > 6 else 112.0
+            plat = float(t[5]) if len(t) > 5 else 0.0
+        tlist.append((nm, tx, ty, hub, plat))
+
+    if nuc_name not in RECEIVERS:
+        raise KeyError(f"Nucli '{nuc_name}' no trobat a RECEIVERS")
+    points = RECEIVERS[nuc_name].get("points", [])
+    # select subset
+    pts = [p for p in points if (rec_id is None or p.get("id") == rec_id)]
+
+    out = []
+    for p in pts:
+        rx, ry = float(p["x"]), float(p["y"])
+        h_rec = float(h_rec_override if h_rec_override is not None else p.get("h_rec", p.get("h_mic", 4.0)))
+        # Elevations at endpoints from DEM
+        r0, c0 = _xy_to_rowcol_fast(rx, ry)
+        # receiver terrain elevation:
+        zterr_rec = float(DEM_ARRAY[r0, c0]) if 0 <= r0 < DEM_ARRAY.shape[0] and 0 <= c0 < DEM_ARRAY.shape[1] else 0.0
+        z_rec = zterr_rec + h_rec
+        for (nm, tx, ty, hub, plat) in tlist:
+            r1, c1 = _xy_to_rowcol_fast(tx, ty)
+            zterr_src = float(DEM_ARRAY[r1, c1]) if 0 <= r1 < DEM_ARRAY.shape[0] and 0 <= c1 < DEM_ARRAY.shape[1] else 0.0
+            z_src = zterr_src + plat + hub
+            max_ex = _los_max_exceed_numba(DEM_ARRAY, r1, c1, z_src, r0, c0, z_rec)
+            dist_m = ((tx - rx)**2 + (ty - ry)**2) ** 0.5
+            los_clear = (max_ex <= tol_m)
+            out.append({
+                "turbina": nm,
+                "receptor_id": p.get("id"),
+                "x": rx, "y": ry,
+                "dist_m": float(dist_m),
+                "h_max_exced_m": float(max_ex if max_ex > -1e8 else -9999.0),
+                "LOS_clara": bool(los_clear),
+                "tolerance_m": tol_m,
+            })
+            
+    return out
+
+
+
+def check_los_multi_orig(
     nuc_name: str,
     rec_id: str | None = None,   # si None → tots els receptors del nucli
-    tnames: list[str] | None = None,  # si None → totes les turbines
+    #tnames: list[str] | None = None,  # si None → totes les turbines
     h_rec_override: float | None = None,  # si vols provar una alçada diferent temporalment
     tol_m: float = 0.5,           # tolerància d'excedència del DEM (m)
     n_prof_per_km: int = 40       # densitat del perfil (p. ex. 40 punts/km ≈ 1 punt/25 m)
@@ -680,14 +735,6 @@ def check_los_multi(
     Retorna una llista de dicts amb la comprovació LOS per a cada (turbina, receptor) seleccionat.
     Cada dict inclou: turbina, receptor, dist_m, h_max_exced_m, LOS_clara (True/False).
     """
-    # --- turbines a considerar
-    tlist = [(nm, x, y) for (nm, x, y) in TURBINES]
-    if tnames:
-        tset = set(tnames)
-        tlist = [(nm, x, y) for (nm, x, y) in tlist if nm in tset]
-        if not tlist:
-            raise ValueError(f"Cap turbina coincideix amb {tnames!r}")
-
     # --- receptors del nucli
     if nuc_name not in RECEIVERS:
         raise ValueError(f"Nucli {nuc_name!r} no definit a RECEIVERS")
@@ -705,10 +752,19 @@ def check_los_multi(
         pts = pts_all  # tots
 
     out = []
-    for (tname, tx, ty) in tlist:
+    for t in TURBINES: 
+        tname, tx, ty, lat, lon, plat_h, hub_h, rotor_d, shade_corr, cut_in, cut_out, model, power = (
+            t["id"], t["x"], t["y"], t.get("lat"), t.get("lon"),
+            t.get("elev_platform_m", 0.0), t.get("hub_height_m", 112.0),
+            t.get("rotor_diam_m", 172.0), t.get("solidity", 0.5),
+            t.get("cut_in_ms", 3.0), t.get("cut_out_ms", 25.0),
+            t.get("model", ""), t.get("rated_power_MW", 0.0)
+        )            
+        
+    #for (tname, tx, ty) in tlist:
         # cota a la turbina
         z_s = float(sample_dem(np.array([tx]), np.array([ty])))
-        hs  = z_s + H_SOURCE
+        hs  = z_s + hub_h
 
         for p in pts:
             rx, ry = float(p["x"]), float(p["y"])
@@ -751,17 +807,163 @@ def check_los_multi(
     return out
 
 
+# Dispatcher: choose Numba fast path if enabled; else original
+def check_los_multi(nuc_name: str,
+                    rec_id: str | None = None,
+                    h_rec_override: float | None = None,
+                    tol_m: float = 0.5,
+                    n_prof_per_km: int = 40):
+    if bool(globals().get("USE_NUMBA", False)):
+        return check_los_multi_numba(nuc_name, rec_id, h_rec_override, tol_m, n_prof_per_km)
+    return check_los_multi_orig(nuc_name, rec_id, h_rec_override, tol_m, n_prof_per_km)
+    
+
 # ----------------------- EXECUCIÓ per cada JOC METEO -----------------------
-def run_set(set_name, suffix):
+
+# ---------- Top-level worker for parallel profile computation ----------
+def compute_maps_for_profile__worker(args, compute_args):
+    """args = (prof, bands)"""
+    cfg = load_config_yaml(args.config)
+    apply_yaml_overrides(cfg)
+    
+    prof = compute_args
+    alpha_f = alpha_per_profile(BANDS, prof)
+    neu = lp_map_per_band_with_alpha(alpha_f, "neutral")
+    fav = lp_map_per_band_with_alpha(alpha_f, "favourable")
+    #print(fav)
+    #print(prof["name"])
+    return prof["name"], neu, fav
+
+
+# ---------- Multicore per-punt (receptors) ----------
+def _comb_energy_db(a, b):
+    # suma energètica en dB
+    return 10*np.log10(10**(a/10.0) + 10**(b/10.0))
+
+def compute_point_row__worker(args, compute_args):
+    """
+    args: (nuc_name, pt_dict, profiles)
+    Retorna (nuc_name, row, Lden_total)
+    """
+    #args = parser.parse_args()
+    cfg = load_config_yaml(args.config)
+    apply_yaml_overrides(cfg)
+    
+    nuc_name, pt, profiles = compute_args
+    x, y = float(pt["x"]), float(pt["y"])
+    h_rec = float(pt.get("h_rec", pt.get("h_mic", 4.0)))
+    f_db  = float(pt.get("facade_db", 3.0))
+
+    # 1) turbines anuals al punt (Ld/Le/Ln)
+    Ld_t, Le_t, Ln_t = LpA_point_annual(x, y, h_rec, f_db, profiles)
+
+    # 2) ambient del punt (per-receptor)
+    pre = get_ambient_for_point(nuc_name, pt)
+
+    # 3) combinació energètica
+    Ld_T = _comb_energy_db(Ld_t, pre["Ld"])
+    Le_T = _comb_energy_db(Le_t, pre["Le"])
+    Ln_T = _comb_energy_db(Ln_t, pre["Ln"])
+
+    # 4) Lden (turb/ambient/total)
+    Lden_t = Lden_from_cat(Ld_t, Le_t, Ln_t)
+    Lden_p = Lden_from_cat(pre["Ld"], pre["Le"], pre["Ln"])
+    Lden_T = Lden_from_cat(Ld_T, Le_T, Ln_T)
+
+    row = [nuc_name, pt["id"], f"{h_rec:.1f}",
+           round(Ld_t,1), round(pre["Ld"],1), round(Ld_T,1),
+           round(Le_t,1), round(pre["Le"],1), round(Le_T,1),
+           round(Ln_t,1), round(pre["Ln"],1), round(Ln_T,1),
+           round(Lden_t,1), round(Lden_p,1), round(Lden_T,1),
+           x, y]
+    return nuc_name, row, Lden_T
+
+def compute_all_points_multicore(args, profiles):
+    """
+    Construeix items (nuc, pt, profiles) i els processa en paral·lel amb parallel_map().
+    Retorna (rows, metric_suc) on metric_suc[nuc] = pitjor Lden_total.
+    """
+    use_mp = bool(globals().get("USE_MULTIPROC", True))
+    # Llista d'items per a tots els punts de tots els nuclis
+    items = []
+    for nuc_name, recinfo in RECEIVERS.items():
+        for pt in recinfo.get("points", []):
+            items.append((nuc_name, pt, profiles))
+
+    results = parallel_map(compute_point_row__worker, args, items, use_mp=use_mp)
+
+    rows = []
+    metric_suc = {}
+    for nuc_name, row, lden_T in results:
+        rows.append(row)
+        prev = metric_suc.get(nuc_name, None)
+        if prev is None or lden_T > prev:
+            metric_suc[nuc_name] = lden_T
+    return rows, metric_suc
+
+# ---------- Check for available processing cores ----------
+def get_optimal_workers():
+    """
+    Retorna un nombre de workers òptim segons la màquina:
+    - Apple Silicon (M1/M2): limita a 4 (nuclis performance).
+    - Altres: num. nuclis físics, com a mínim 2.
+    """
+    system = platform.system()
+    machine = platform.machine().lower()
+    cpu_count = mp.cpu_count()
+
+    if system == "Darwin" and ("arm" in machine or "apple" in machine):
+        return min(4, cpu_count)
+    else:
+        try:
+            import psutil
+            physical = psutil.cpu_count(logical=False)
+            if physical:
+                return max(2, physical)
+        except ImportError:
+            pass
+        return max(2, cpu_count)
+
+def resolve_num_workers():
+    """Respecta el YAML: NUM_CORES 'auto' o int; si no, usa get_optimal_workers()."""
+    v = globals().get("NUM_CORES", "auto")
+    if isinstance(v, str) and v.lower() == "auto":
+        return get_optimal_workers()
+    try:
+        n = int(v)
+    except Exception:
+        return get_optimal_workers()
+    n = max(2, n)
+    n = min(n, mp.cpu_count())
+    return n
+
+def parallel_map(func, args, items, use_mp=True):
+    """Executa func(item) en paral·lel si use_mp i hi ha més d'1 worker."""
+    workers = resolve_num_workers()
+    if (not use_mp) or workers <= 1 or len(items) <= 1:
+        return [func(it) for it in items]
+    
+    cfg = load_config_yaml(args.config)
+    apply_yaml_overrides(cfg)
+    
+    with ProcessPoolExecutor(max_workers=workers) as ex:
+        futs = [ex.submit(func, args, it) for it in items]
+        # conserva l'ordre d'entrada
+        return [f.result() for f in futs]
+
+def run_set(args, suffix):
+    set_name = args.scenario
     profiles = build_profiles(set_name)
-
+    
     # 1) MAPES per perfil i mode meteo → anual (per Ld/Le/Ln) → Lden (turbines)
-    Lp_neu_by_prof, Lp_fav_by_prof = {}, {}
-    for prof in profiles:
-        alpha_f = alpha_per_profile(BANDS, prof)
-        Lp_neu_by_prof[prof["name"]] = lp_map_per_band_with_alpha(alpha_f, "neutral")
-        Lp_fav_by_prof[prof["name"]] = lp_map_per_band_with_alpha(alpha_f, "favourable")
+    use_mp = bool(globals().get("USE_MULTIPROC", True))
 
+    results = parallel_map(compute_maps_for_profile__worker, args, profiles, use_mp=use_mp)    
+    Lp_neu_by_prof, Lp_fav_by_prof = {}, {}
+    for name, neu, fav in results:
+        Lp_neu_by_prof[name] = neu
+        Lp_fav_by_prof[name] = fav    
+        
     Ld_prof = {}
     Le_prof = {}
     Ln_prof = {}
@@ -779,51 +981,24 @@ def run_set(set_name, suffix):
 
     # 2) RECEPTORS (turbines anuals + preexistent) i SUC per acolorir
 
-    rows = []
-    metric_suc = {}  # color per nucli: prendrem el pitjor Lden_total dels seus punts
-
-    for nuc_name, recinfo in RECEIVERS.items():
-        nuc_rows = []
-        for pt in recinfo.get("points", []):
-            x, y = float(pt["x"]), float(pt["y"])
-            h_rec = float(pt.get("h_rec", 4.0))
-            f_db  = float(pt.get("facade_db", 3.0))
-
-            # 1) turbines anuals al punt (Ld/Le/Ln)
-            Ld_t, Le_t, Ln_t = LpA_point_annual(x, y, h_rec, f_db, profiles)
-
-            # 2) ambient del punt (per-receptor)
-            pre = get_ambient_for_point(nuc_name, pt)
-
-            # 3) combinació energètica
-            def comb(a, b): return 10*np.log10(10**(a/10.0) + 10**(b/10.0))
-            Ld_T = comb(Ld_t, pre["Ld"])
-            Le_T = comb(Le_t, pre["Le"])
-            Ln_T = comb(Ln_t, pre["Ln"])
-
-            # 4) Lden (turb/ambient/total)
-            Lden_t = Lden_from_cat(Ld_t, Le_t, Ln_t)
-            Lden_p = Lden_from_cat(pre["Ld"], pre["Le"], pre["Ln"])
-            Lden_T = Lden_from_cat(Ld_T, Le_T, Ln_T)
-
-            row = [nuc_name, pt["id"], f"{h_rec:.1f}",
-                   round(Ld_t,1), round(pre["Ld"],1), round(Ld_T,1),
-                   round(Le_t,1), round(pre["Le"],1), round(Le_T,1),
-                   round(Ln_t,1), round(pre["Ln"],1), round(Ln_T,1),
-                   round(Lden_t,1), round(Lden_p,1), round(Lden_T,1),
-                   x, y]
-            rows.append(row)
-            nuc_rows.append(row)
-
-        # color del SUC: pitjor (més alt) Lden_total dels punts del nucli
-        if nuc_rows:
-            worst_ldent = max(r[14] for r in nuc_rows)  # col 14 = Lden_tot
-            metric_suc[nuc_name] = worst_ldent
-
+    rows, metric_suc = compute_all_points_multicore(args, profiles)
+    #for nuc_name, recinfo in RECEIVERS.items():    
+    #    if rows:
+    #        worst_ldent = max(r[14] for r in rows)  # col 14 = Lden_tot
+    #        metric_suc[nuc_name] = worst_ldent
+    
     # 3) DISTÀNCIES mínimes (cercle rotor → SUC més proper del nucli)
     dist_rows = []
-    for tname, xt, yt in TURBINES:
-        circ = Point(xt, yt).buffer(RADIUS, 128)
+    for t in TURBINES:
+        tname, xt, yt, lat, lon, plat_h, hub_h, rotor_d, shade_corr, cut_in, cut_out, model, power = (
+            t["id"], t["x"], t["y"], t.get("lat"), t.get("lon"),
+            t.get("elev_platform_m", 0.0), t.get("hub_height_m", 112.0),
+            t.get("rotor_diam_m", 172.0), t.get("solidity", 0.5),
+            t.get("cut_in_ms", 3.0), t.get("cut_out_ms", 25.0),
+            t.get("model", ""), t.get("rated_power_MW", 0.0)
+        )            
+        
+        circ = Point(xt, yt).buffer((rotor_d/2), 128)
         best_d, best_n = None, None
         for nuc in RECEIVERS.keys():
             rx, ry = nuc_rep_xy(nuc)
@@ -891,8 +1066,16 @@ def run_set(set_name, suffix):
             ax.add_collection(pc)
 
     # Turbines: cercle Ø172 m + creu + nom
-    for tname, x, y in TURBINES:
-        circ = plt.Circle((x, y), RADIUS, fill=False, color="black"); ax.add_patch(circ)
+    for t in TURBINES:
+        tname, x, y, lat, lon, plat_h, hub_h, rotor_d, shade_corr, cut_in, cut_out, model, power = (
+            t["id"], t["x"], t["y"], t.get("lat"), t.get("lon"),
+            t.get("elev_platform_m", 0.0), t.get("hub_height_m", 112.0),
+            t.get("rotor_diam_m", 172.0), t.get("solidity", 0.5),
+            t.get("cut_in_ms", 3.0), t.get("cut_out_ms", 25.0),
+            t.get("model", ""), t.get("rated_power_MW", 0.0)
+        )                    
+        radius = rotor_d / 2
+        circ = plt.Circle((x, y), radius, fill=False, color="black"); ax.add_patch(circ)
         circ2 = plt.Circle((x, y), RADIUS_NORM_CAT, fill=False, color="violet", linestyle="--"); ax.add_patch(circ2)
         circ3 = plt.Circle((x, y), RADIUS_NORM_ESP, fill=False, color="blue", linestyle="--"); ax.add_patch(circ3)
         ax.scatter([x], [y], marker="+", s=85, color="#c81e1e", linewidths=1.8)
@@ -921,7 +1104,7 @@ def run_set(set_name, suffix):
     # mostra los per tots els receptors
     res_all = []
     for nuc in RECEIVERS.keys():
-        res_all.extend(check_los_multi(nuc, rec_id=None, tnames=None, tol_m=0.5, n_prof_per_km=40))
+        res_all.extend(check_los_multi_numba(nuc, rec_id=None, tol_m=TOL_M, n_prof_per_km=N_PROF_PER_KM))
     save_los_results_to_csv(res_all, filename="LOS_TOTS_ELS_RECEPTORS.csv")
     plot_los_on_map(res_all, ax)
     
@@ -1056,7 +1239,33 @@ def run_set(set_name, suffix):
     print(f"Exportats: {png_name}, {csv_name}")
 
 # ----------------------- LLANÇA ELS TRES JOCS -----------------------
+
 if __name__ == "__main__":
-    run_set("robust", "ROBUST")
-    #run_set("central",     "CENT")
-    #run_set("sec",         "SEC")
+    parser = argparse.ArgumentParser(description="BASE-CASE PRO — CNOSSOS (anual) amb YAML de configuració")
+    parser.add_argument("--config", "-c", help="Ruta a config.yaml", default=None)
+    parser.add_argument("--scenario", "-s", help="Escenari meteo (robust|central|sec)", default="robust")
+    parser.add_argument("--suffix", help="Sufix per als fitxers exportats (p.ex. ROBUST)", default=None)
+    parser.add_argument("--limits", "-l", help="Acustic limits", default="Sens_60")
+    args = parser.parse_args()
+
+    if args.config:
+        try:
+            cfg = load_config_yaml(args.config)
+            apply_yaml_overrides(cfg)
+            global BBOX_POLY
+            BBOX_POLY = box(XMIN, YMIN, XMAX, YMAX)
+            load_suc_geoms()
+            global active_limits_key
+            active_limits_key = args.limits  # ← usa aquest
+            global LIMITS
+            LIMITS = limits_sets[active_limits_key]
+            print(f"[YAML] Config aplicat des de: {args.config}")
+        except Exception as e:
+            print(f"[YAML] ERROR llegint config: {e}", file=sys.stderr)
+            sys.exit(2)
+
+    # Deriva un sufix si no s'ha passat explícitament
+    suf = args.suffix or args.scenario.upper()
+    run_set(args, suf)
+
+    
