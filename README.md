@@ -60,7 +60,7 @@ ToDo...
 
 ## Results
 
-The script delivers 3 files for each scenerio:
+The script delivers 2 files for each scenerio:
 
 - The anual 8-band graphics plot
 - A summary csv file including configuration parameters and essential results for receptors
