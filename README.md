@@ -6,7 +6,7 @@ to [report them](https://github.com/leotiger/cnossos-assessment/issues).**
 ![Screenshot](Screenshot.png)
 
 The **CNOSSOS NOISE IMPACT ASSESSMENT** allows you to simulate, determinate and visualize noise impacts for planned infrastructures.
-The tool implements the [EUROPEAN CNOSSOS PROTOCOL assessment](https://sicaweb.cedex.es/docs/documentacion/JRC_%20Technical%20Report_Analysis_CNOSSOS-EU.pdf) and allows for local adaptations, e.g. for Catalonia, Spain, etc.
+The tool implements the [EUROPEAN CNOSSOS PROTOCOL assessment](https://op.europa.eu/es/publication-detail/-/publication/80bca144-bd3a-46fb-8beb-47e16ab603db) and allows for local adaptations, e.g. for Catalonia, Spain, etc.
 
 The tool is not meant for oficial documentation, this tool helps you to verify acustic impact studies provided by promotors for their projects within the process to obtain environmental approval for their proposed projects.
 
@@ -60,10 +60,11 @@ ToDo...
 
 ## Results
 
-The script delivers 2 files for each scenerio:
+The script delivers 3 files for each scenerio:
 
 - The anual 8-band graphics plot
 - A summary csv file including configuration parameters and essential results for receptors
+- A Line-of-Sight csv for sensible receptors of noise sources
 
 ### Important
 
