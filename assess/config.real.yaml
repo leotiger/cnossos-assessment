@@ -289,7 +289,6 @@ USE_NUMBA: true   # si habilites els kernels numèrics (LOS/difracció) amb Numb
 
 # --- Límits d'immissió sonora (Lden) per categoria d'ús del sòl ---
 # Cada clau defineix un "perfil" amb [Ld, Le, Ln] (en dB(A))
-
 LIMITS_SETS:
   Sens_55: [55.0, 50.0, 45.0]
   Sens_60: [60.0, 60.0, 50.0]   # Nou perfil (zones urbanes sensibles)
