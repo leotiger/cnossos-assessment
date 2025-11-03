@@ -70,7 +70,7 @@ For this reason, our noise impact assessment distinguishes between three levels 
 - Best-practice margin (−3 dB tolerance)
 - CNOSSOS-EU impact with “subjective penalties”
 
-The accompanying screenshot illustrates this clearly: CNOSSOS values with penalties are shown in blue. Under CNOSSOS, the example project would not be permitted for any receptor, while under local Catalan regulations it would be disallowed only for a subset of receptors—and for all but one, the regulation would even allow for a posteriori corrections of otherwise “forbidden” noise exceedances.
+The accompanying screenshot illustrates this clearly: CNOSSOS values with penalties are shown in blue. Under CNOSSOS, the example project would not be permitted for any receptor, while under local Catalan regulations it would be disallowed only for a subset of receptors—and for all but one, the regulation would even allow for "a posteriori" corrections of otherwise “forbidden” noise exceedances.
 
 That is, quite frankly, absurd.
 
