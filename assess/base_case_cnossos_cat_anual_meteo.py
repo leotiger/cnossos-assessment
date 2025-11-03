@@ -1064,6 +1064,8 @@ def run_set(args, suffix):
             patches = [MplPolygon(np.asarray(g.exterior.coords)) for g in geoms]
             pc = PatchCollection(patches, facecolor=col, edgecolor="black", alpha=0.85, linewidths=0.8)
             ax.add_collection(pc)
+            ax.text(rx+80, ry+50, f"{nuc}", fontsize=9, color="#1f77b4", weight="bold")
+
 
     # Turbines: cercle Ø172 m + creu + nom
     for t in TURBINES:
@@ -1095,7 +1097,7 @@ def run_set(args, suffix):
         x, y, Lden_tot = float(r[15]), float(r[16]), float(r[14])
         # ax.scatter([x], [y], marker="o", s=40, color="#1f77b4")
         # ax.text(x+60, y+36, f"{nuc_name} - {rec_id}: Lden {Lden_tot:.1f}dB", fontsize=8.5, color="#1f77b4", weight="bold")
-        ax.text(x+60, y+36, f"{nuc_name}", fontsize=9, color="#1f77b4", weight="bold")
+        # ax.text(x+60, y+36, f"{nuc_name}", fontsize=9, color="#1f77b4", weight="bold")
             
     cbar = fig.colorbar(im, ax=ax, fraction=0.045, pad=0.038)
     cbar.set_label(f"Lden (dB) — anual CNOSSOS — joc meteo: {set_name.upper()}")
