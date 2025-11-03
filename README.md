@@ -86,6 +86,15 @@ The script delivers 3 files for each scenerio:
 
 Despite having been reviewed and found error free, be advised that this script is a helper tool. You may want (or need) to calculate some data points manually to prove correctness of the assumptions and results provided by this script.
 
+### Other tools
+
+For noise assessement you may use as well: 
+
+- QGIS + OpeNoise plugin (Python)
+- NoiseModelling (JAVA)
+
+Both platforms require to install and configure rather complicated environments and do not consider local aspects as well as best practice considerations. To offer a simple yet complete assessment dedicated to the specific needs of wind turbine noise impact assessment is the motivation behind the script tool offered here.
+
 ### ToDo
 
 - [x] Clean and improve code base
