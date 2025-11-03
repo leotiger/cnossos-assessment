@@ -56,7 +56,25 @@ The repository contains a working .yaml files and the main python script to exec
 
 ## Assessment
 
-ToDo...
+The European CNOSSOS assessment protocol is mandatory for noise impact simulations across all EU member states. However, the results of these simulations must also take into account local regulations.
+
+For good reason, the European CNOSSOS framework applies stricter criteria by introducing significant negative noise margins of −5 dB in the evening and −10 dB at night. In contrast, many local regulations are more permissive, allowing levels of noise impact that would not be acceptable under CNOSSOS.
+
+In some cases—such as in Catalonia—local rules may even allow temporary exceedances of legal noise limits, provided that the operator later demonstrates compliance a posteriori. This approach makes noise assessment both difficult and controversial, especially for sensitive receptors—humans, to put it plainly. It often means that citizens must chase after the administration or pressure the operating company to correct non-compliant situations, and we all know how challenging those tasks can be.
+
+Since CNOSSOS is mandatory for determining the impact capacity of installations in every EU member state, while local regulations still govern project approval, noise impact assessments inevitably become more complex. Applying the European standard to quantify impacts and the local regulation to interpret compliance frequently leads to contradictory outcomes.
+
+For this reason, our noise impact assessment distinguishes between three levels of interpretation:
+
+Local legal impact
+
+Best-practice margin (−3 dB tolerance)
+
+CNOSSOS-EU impact with “subjective penalties”
+
+The accompanying screenshot illustrates this clearly: CNOSSOS values with penalties are shown in blue. Under CNOSSOS, the example project would not be permitted for any receptor, while under local Catalan regulations it would be disallowed only for a subset of receptors—and for all but one, the regulation would even allow for a posteriori corrections of otherwise “forbidden” noise exceedances.
+
+That is, quite frankly, absurd.
 
 ## Results
 
