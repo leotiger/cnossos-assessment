@@ -16,6 +16,9 @@ from matplotlib.gridspec import GridSpec
 import multiprocessing as mp
 import platform
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import dataclass
+import os, tempfile, shutil
+from affine import Affine
 
 
 # ----------------------- YAML CONFIG SUPPORT -----------------------
@@ -57,6 +60,16 @@ def apply_yaml_overrides(cfg: dict):
         else:
             g[k] = v  # allow introducing new config variables
 
+    global BBOX_POLY
+    BBOX_POLY = box(XMIN, YMIN, XMAX, YMAX)
+    load_suc_geoms()
+    global active_limits_key
+    active_limits_key = globals().get("active_limits_key", list(limits_sets.keys())[0])
+    #active_limits_key = args.limits  # ← usa aquest
+    global LIMITS
+    LIMITS = limits_sets[active_limits_key]
+            
+            
 def load_config_yaml(path: str) -> dict:
     if yaml is None:
         raise RuntimeError("PyYAML no instal·lat: pip install pyyaml")
@@ -361,18 +374,120 @@ def mix_nf(Lneu, Lfav, p):
     return 10*np.log10(p*10**(Lfav/10.0) + (1.0-p)*10**(Lneu/10.0) + 1e-30)
 
 # ----------------------- MALLA del plànol -----------------------
-inv = ~TRANS
-c0,r0 = inv*(XMIN, YMAX); c1,r1 = inv*(XMAX, YMIN)
-rmin,rmax = int(np.floor(min(r0,r1))), int(np.ceil(max(r0,r1)))
-cmin,cmax = int(np.floor(min(c0,c1))), int(np.ceil(max(c0,c1)))
-step_pix = max(1, int(GRID_STEP_M/abs(XRES)))
-rows = np.arange(max(0,rmin), min(Z.shape[0], rmax), step_pix)
-cols = np.arange(max(0,cmin), min(Z.shape[1], cmax), step_pix)
-COL, ROW = np.meshgrid(cols+0.5, rows+0.5)
-a,b,c_,d,e,f_ = TRANS.a, TRANS.b, TRANS.c, TRANS.d, TRANS.e, TRANS.f
-XX = a*COL + b*ROW + c_
-YY = d*COL + e*ROW + f_
-Z_GRID = sample_dem(XX, YY)
+#inv = ~TRANS
+#c0,r0 = inv*(XMIN, YMAX); c1,r1 = inv*(XMAX, YMIN)
+#rmin,rmax = int(np.floor(min(r0,r1))), int(np.ceil(max(r0,r1)))
+#cmin,cmax = int(np.floor(min(c0,c1))), int(np.ceil(max(c0,c1)))
+#step_pix = max(1, int(GRID_STEP_M/abs(XRES)))
+#rows = np.arange(max(0,rmin), min(Z.shape[0], rmax), step_pix)
+#cols = np.arange(max(0,cmin), min(Z.shape[1], cmax), step_pix)
+#COL, ROW = np.meshgrid(cols+0.5, rows+0.5)
+#a,b,c_,d,e,f_ = TRANS.a, TRANS.b, TRANS.c, TRANS.d, TRANS.e, TRANS.f
+#XX = a*COL + b*ROW + c_
+#YY = d*COL + e*ROW + f_
+#Z_GRID = sample_dem(XX, YY)
+XX = YY = Z_GRID = None     # np.memmap (read-only)
+rows = cols = None          # np.ndarray petits (copiats)
+step_pix = None             # int
+GRID_META = None            # dict amb info memmap (compartida)
+
+@dataclass
+class PlanGrid:
+    rows: np.ndarray
+    cols: np.ndarray
+    XX: np.ndarray
+    YY: np.ndarray
+    Z_GRID: np.ndarray
+    step_pix: int
+
+def build_plan_grid_obj(XMIN, YMIN, XMAX, YMAX, GRID_STEP_M, TRANS: Affine, Z: np.ndarray, sample_dem):
+    inv = ~TRANS
+    c0, r0 = inv * (XMIN, YMAX); c1, r1 = inv * (XMAX, YMIN)
+    rmin, rmax = int(np.floor(min(r0, r1))), int(np.ceil(max(r0, r1)))
+    cmin, cmax = int(np.floor(min(c0, c1))), int(np.ceil(max(c0, c1)))
+
+    a, b, c_, d, e, f_ = TRANS.a, TRANS.b, TRANS.c, TRANS.d, TRANS.e, TRANS.f
+    XRES = a
+    step_pix = max(1, int(GRID_STEP_M / abs(XRES)))
+
+    rs = np.arange(max(0, rmin), min(Z.shape[0], rmax), step_pix, dtype=int)
+    cs = np.arange(max(0, cmin), min(Z.shape[1], cmax), step_pix, dtype=int)
+
+    # mateixes fórmules que al teu codi (+0.5 centre de píxel)
+    COL, ROW = np.meshgrid(cs.astype(float) + 0.5, rs.astype(float) + 0.5)
+    XX = a*COL + b*ROW + c_
+    YY = d*COL + e*ROW + f_
+    ZG = sample_dem(XX, YY)
+
+    return PlanGrid(rows=rs, cols=cs, XX=XX, YY=YY, Z_GRID=ZG, step_pix=step_pix)
+
+def export_plan_to_memmap(plan: PlanGrid, dirpath=None):
+    """ Escriu XX/YY/Z_GRID a memmap i retorna meta (paths+shapes+dtypes+rows/cols/step_pix). """
+    if dirpath is None:
+        dirpath = tempfile.mkdtemp(prefix="malla_")
+    paths = {}
+    def _write(name, arr):
+        path = os.path.join(dirpath, f"{name}.mmap")
+        mm = np.memmap(path, dtype=arr.dtype, mode='w+', shape=arr.shape)
+        mm[:] = arr[:]
+        del mm
+        paths[name] = (path, arr.shape, str(arr.dtype))
+    _write("XX", plan.XX)
+    _write("YY", plan.YY)
+    _write("Z_GRID", plan.Z_GRID)
+    # meta petit (en memòria normal)
+    meta = {
+        "dirpath": dirpath,
+        "paths": paths,
+        "rows": plan.rows,
+        "cols": plan.cols,
+        "step_pix": int(plan.step_pix),
+    }
+    return meta
+
+def _init_grid_from_memmap(meta):
+    """Initializer per a ProcessPoolExecutor: obre memmaps i inicialitza globals dins del worker."""
+    global XX, YY, Z_GRID, rows, cols, step_pix, GRID_META
+    GRID_META = meta
+    def _read(path, shape, dtype_str):
+        return np.memmap(path, dtype=np.dtype(dtype_str), mode='r', shape=tuple(shape))
+    XX = _read(*meta["paths"]["XX"])
+    YY = _read(*meta["paths"]["YY"])
+    Z_GRID = _read(*meta["paths"]["Z_GRID"])
+    rows = meta["rows"]
+    cols = meta["cols"]
+    step_pix = meta["step_pix"]
+
+def make_grid_executor(max_workers):
+    """Crea un ProcessPoolExecutor amb l'initializer que munta la malla en cada worker."""
+    #from concurrent.futures import ProcessPoolExecutor
+    assert GRID_META is not None, "GRID_META no inicialitzat: crida setup_grid_memmap() abans."
+    return ProcessPoolExecutor(
+        max_workers=max_workers,
+        initializer=_init_grid_from_memmap,
+        initargs=(GRID_META,)
+    )
+
+def setup_grid_memmap_after_yaml(XMIN, YMIN, XMAX, YMAX, GRID_STEP_M, TRANS, Z, sample_dem):
+    """
+    Construeix la malla, exporta memmaps, inicialitza globals al PROC principal.
+    Retorna GRID_META (guarda-ho en un global per usar a make_grid_executor()).
+    """
+    global GRID_META
+    plan = build_plan_grid_obj(XMIN, YMIN, XMAX, YMAX, GRID_STEP_M, TRANS, Z, sample_dem)
+    GRID_META = export_plan_to_memmap(plan)
+    # IMPORTANT: inicialitza també globals al procés principal reutilitzant el mateix initializer
+    _init_grid_from_memmap(GRID_META)
+    return GRID_META
+
+def cleanup_grid_memmap():
+    """Esborra el directori temporal del memmap (si existeix). Cridar al final del programa."""
+    if GRID_META and "dirpath" in GRID_META and os.path.isdir(GRID_META["dirpath"]):
+        try:
+            shutil.rmtree(GRID_META["dirpath"], ignore_errors=True)
+        except Exception:
+            pass
+# ============================================================================== 
 
 # ----------------------- LLEGIR SUC -----------------------
 SUC_GEOMS = []
@@ -945,11 +1060,15 @@ def parallel_map(func, args, items, use_mp=True):
     
     cfg = load_config_yaml(args.config)
     apply_yaml_overrides(cfg)
-    
-    with ProcessPoolExecutor(max_workers=workers) as ex:
+    print(args)
+    with make_grid_executor(max_workers=workers) as ex:
         futs = [ex.submit(func, args, it) for it in items]
+        return [f.result() for f in futs]    
+        
+    #with ProcessPoolExecutor(max_workers=workers) as ex:
+    #    futs = [ex.submit(func, args, it) for it in items]
         # conserva l'ordre d'entrada
-        return [f.result() for f in futs]
+    #    return [f.result() for f in futs]
 
 def run_set(args, suffix):
     set_name = args.scenario
@@ -1246,7 +1365,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="BASE-CASE PRO — CNOSSOS (anual) amb YAML de configuració")
     parser.add_argument("--config", "-c", help="Ruta a config.yaml", default=None)
     parser.add_argument("--scenario", "-s", help="Escenari meteo (robust|central|sec)", default="robust")
-    parser.add_argument("--suffix", help="Sufix per als fitxers exportats (p.ex. ROBUST)", default=None)
+    parser.add_argument("--suffix", "-i", help="Sufix per als fitxers exportats (p.ex. ROBUST)", default=None)
     parser.add_argument("--limits", "-l", help="Acustic limits", default="Sens_60")
     args = parser.parse_args()
 
@@ -1254,20 +1373,31 @@ if __name__ == "__main__":
         try:
             cfg = load_config_yaml(args.config)
             apply_yaml_overrides(cfg)
+            
+            # we need to make this available inside of every worker as well
             global BBOX_POLY
             BBOX_POLY = box(XMIN, YMIN, XMAX, YMAX)
             load_suc_geoms()
             global active_limits_key
             active_limits_key = args.limits  # ← usa aquest
             global LIMITS
-            LIMITS = limits_sets[active_limits_key]
+            LIMITS = limits_sets[active_limits_key]            
             print(f"[YAML] Config aplicat des de: {args.config}")
+            
+            setup_grid_memmap_after_yaml(
+                XMIN=XMIN, YMIN=YMIN, XMAX=XMAX, YMAX=YMAX,
+                GRID_STEP_M=GRID_STEP_M, TRANS=TRANS, Z=Z, sample_dem=sample_dem
+            )
+            print("[GRID] Malla creada i exportada a memmap (globals inicialitzats).")
+            
         except Exception as e:
             print(f"[YAML] ERROR llegint config: {e}", file=sys.stderr)
+            print(f"[GRID] ERROR creant malla/memmap: {e}", file=sys.stderr)
             sys.exit(2)
 
+    
     # Deriva un sufix si no s'ha passat explícitament
     suf = args.suffix or args.scenario.upper()
     run_set(args, suf)
+    cleanup_grid_memmap()
 
-    
