@@ -6,6 +6,8 @@
 # - Barreja meteo CNOSSOS: neutral vs favourable amb p_fav per Ld/Le/Ln
 # - Ponderació estacional (DJF/MAM/JJA/SON) per Ld/Le/Ln → Lden (14/2/8)
 # - SUC acolorits pel Lden total (turbines+preexistent), cercles Ø172 m, creu posició, llegenda distàncies
+VERSION = 1.0
+
 import argparse, sys, math
 import numpy as np, rasterio, matplotlib.pyplot as plt, fiona, csv
 from matplotlib.patches import Polygon as MplPolygon, Patch
