@@ -132,7 +132,7 @@ XMIN, YMIN, XMAX, YMAX = 344500, 4595500, 353500, 4600500
 YEAR = 2025
 PROJECT = ""
 ESIA = ""
-OUTPUT_DIR = "SCENES"
+OUTPUT_DIR = ""
 
 
 # ----------------------- TURBINES -----------------------
@@ -1433,7 +1433,7 @@ def run_set(args, suffix):
         f"Perfils meteo {set_name}: T/HR/Pressió estacional (XEMA Sta. Coloma + bellcam HR).\n"
         f"Absorció ISO9613-1; Deygout multi-aresta; Gs/Gm/Gr={GROUND_GS}/{GROUND_GM}/{GROUND_GR}; receptors a façana +3 dB.\n"
         "En la fórmula de CNOSSOS/Directiva 2002/49/CE per Lden s’hi afegeixen penalitzacions subjectives.\n"
-        "Lden: 14h dia (Ld), 2h vespre (Le +5 dB), 8h nit (Ln +10 dB) — normativa EU, horaris cat."
+        "Lden: 14h dia (Ld), 2h vespre (Le +5 dB), 8h nit (Ln +10 dB) — normativa EU, horaris cat.\n"
         f"CNOSSOS-EU Assessment, version: {VERSION}",
         ha="left", va="top", fontsize=8, family="monospace")    
     
@@ -1495,6 +1495,7 @@ if __name__ == "__main__":
         try:
             cfg = load_config_yaml(args.config)
             apply_yaml_overrides(cfg)
+            print(OUTPUT_DIR)
             ensure_output_dir(OUTPUT_DIR)
             # we need to make this available inside of every worker as well
             global BBOX_POLY

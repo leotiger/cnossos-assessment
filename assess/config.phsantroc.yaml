@@ -1,5 +1,9 @@
 DEM_PATH: DEM_clip_5m-rpglobal.tif
 GML_PATH: MUC_classificacio.gml
+OUTPUT_DIR: "ph-santroc"
+YEAR: 2025
+NAME: "Projecte Híbrid Sant Roc"
+ESIA: "FUE-2024-03651236"
 
 TURBINES:
   - id: "YA3"

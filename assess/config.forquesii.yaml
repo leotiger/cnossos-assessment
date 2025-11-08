@@ -1,6 +1,12 @@
 DEM_PATH: DEM_clip_5m-rpglobal.tif
 GML_PATH: MUC_classificacio.gml
 
+OUTPUT_DIR: "pe-forques-ii"
+YEAR: 2025
+NAME: "Projecte Les Forques II"
+ESIA: "MAH/2990/2010"
+
+
 TURBINES:
   - id: "LF1"
     x: 351481.874
