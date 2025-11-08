@@ -10,6 +10,8 @@
 4. [](#improved)
     * Add synthetic SUC for receivers which do not dispose of official urban ground declaration (SUC)
 5. [](#improved)
+    * Add output directory to avoid overwriting results for diferent yamls and projects
+6. [](#improved)
     * Add basic version information for tracebility
     
 # v0.1
