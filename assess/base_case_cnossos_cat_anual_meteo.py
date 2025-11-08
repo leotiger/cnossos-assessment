@@ -1232,7 +1232,9 @@ def run_set(args, suffix):
 
     # 4) EXPORT CSV
     csv_name = f"TAULA_BASE_PRO_60_50_CAT_ANNUAL_{suffix}.csv"
-    with open(csv_name, "w", newline="", encoding="utf-8") as fcsv:
+    result_path = os.path.join(OUTPUT_DIR, csv_name)        
+
+    with open(result_path, "w", newline="", encoding="utf-8") as fcsv:
         w = csv.writer(fcsv, delimiter=";")
         w.writerow(["Nucli","ReceptorID","h_rec(m)",
                     "Ld_turb","Ld_pre","Ld_tot","Le_turb","Le_pre","Le_tot",
@@ -1431,7 +1433,8 @@ def run_set(args, suffix):
         f"Perfils meteo {set_name}: T/HR/Pressió estacional (XEMA Sta. Coloma + bellcam HR).\n"
         f"Absorció ISO9613-1; Deygout multi-aresta; Gs/Gm/Gr={GROUND_GS}/{GROUND_GM}/{GROUND_GR}; receptors a façana +3 dB.\n"
         "En la fórmula de CNOSSOS/Directiva 2002/49/CE per Lden s’hi afegeixen penalitzacions subjectives.\n"
-        "Lden: 14h dia (Ld), 2h vespre (Le +5 dB), 8h nit (Ln +10 dB) — normativa EU, horaris cat.",
+        "Lden: 14h dia (Ld), 2h vespre (Le +5 dB), 8h nit (Ln +10 dB) — normativa EU, horaris cat."
+        f"CNOSSOS-EU Assessment, version: {VERSION}",
         ha="left", va="top", fontsize=8, family="monospace")    
     
     """
