@@ -6,20 +6,21 @@
 # - Barreja meteo CNOSSOS: neutral vs favourable amb p_fav per Ld/Le/Ln
 # - Ponderació estacional (DJF/MAM/JJA/SON) per Ld/Le/Ln → Lden (14/2/8)
 # - SUC acolorits pel Lden total (turbines+preexistent), cercles Ø172 m, creu posició, llegenda distàncies
-import argparse, sys
+import argparse, sys, math
 import numpy as np, rasterio, matplotlib.pyplot as plt, fiona, csv
 from matplotlib.patches import Polygon as MplPolygon, Patch
 from matplotlib.collections import PatchCollection
 from matplotlib.colors import ListedColormap, BoundaryNorm
-from shapely.geometry import Point, box, MultiPolygon, shape
 from matplotlib.gridspec import GridSpec
+from shapely.geometry import Point, box, MultiPolygon, shape
+from shapely.geometry.base import BaseGeometry
+from shapely.strtree import STRtree
 import multiprocessing as mp
 import platform
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 import os, tempfile, shutil
 from affine import Affine
-
 
 # ----------------------- YAML CONFIG SUPPORT -----------------------
 try:
@@ -65,7 +66,6 @@ def apply_yaml_overrides(cfg: dict):
     load_suc_geoms()
     global active_limits_key
     active_limits_key = globals().get("active_limits_key", list(limits_sets.keys())[0])
-    #active_limits_key = args.limits  # ← usa aquest
     global LIMITS
     LIMITS = limits_sets[active_limits_key]
             
@@ -79,6 +79,16 @@ def load_config_yaml(path: str) -> dict:
         raise ValueError("El YAML de configuració ha de tenir un mapping al nivell superior")
     return cfg
 
+def ensure_output_dir(output_dir: str | None) -> str | None:
+    """
+    Si s'especifica output_dir, assegura que existeix (mkdir -p).
+    Retorna la ruta normalitzada o None si no s'ha indicat.
+    """
+    if output_dir:
+        out = os.path.abspath(output_dir)
+        os.makedirs(out, exist_ok=True)        
+        return out
+    return None
 
 
 # ----------------------- FITXERS D’ENTRADA -----------------------
@@ -116,6 +126,12 @@ XMIN, YMIN, XMAX, YMAX = 344500, 4595500, 353500, 4600500
 #XMIN, YMIN, XMAX, YMAX = 340000, 4604000, 355000, 4594000
 
 # BBOX_POLY = box(XMIN, YMIN, XMAX, YMAX)
+
+YEAR = 2025
+PROJECT = ""
+ESIA = ""
+OUTPUT_DIR = "SCENES"
+
 
 # ----------------------- TURBINES -----------------------
 TURBINES = []
@@ -659,7 +675,9 @@ def save_los_results_to_csv(res, filename="LOS_resultats.csv"):
         print("No hi ha resultats LOS per desar.")
         return
     fields = ["turbina","receptor_id","x","y","dist_m","h_max_exced_m","tolerance_m","LOS_clara"]
-    with open(filename, "w", newline="", encoding="utf-8") as f:
+    result_path = os.path.join(OUTPUT_DIR, filename)        
+
+    with open(result_path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=fields, delimiter=";")
         w.writeheader()
         for row in res:
@@ -1071,6 +1089,109 @@ def parallel_map(func, args, items, use_mp=True):
     #    return [f.result() for f in futs]
 
 def run_set(args, suffix):
+    # 0) DISTÀNCIES mínimes (cercle rotor → SUC més proper del nucli)
+    suc_tree = STRtree(SUC_GEOMS)
+
+    # For each nucleus, find the SUC polygon that is closest to ANY of its receivers
+    NUC_CLOSEST_SUC = {}    
+    MAX_SUC_DIST_M = 500.0  # or 1500 / 2000, as you prefer
+    
+    for nuc, data in RECEIVERS.items():
+        pts = data.get("points", [])
+        if not pts:
+            continue
+
+        # Precompute a simple "nucleus centroid" for fallback
+        xs = [float(p["x"]) for p in pts]
+        ys = [float(p["y"]) for p in pts]
+        nuc_centroid = Point(sum(xs) / len(xs), sum(ys) / len(ys))
+
+        best_poly = None
+        best_dp   = math.inf
+
+        for pinfo in pts:
+            rx = float(pinfo["x"])
+            ry = float(pinfo["y"])
+            pt = Point(rx, ry)
+
+            best_local_poly = None
+            best_local_dp   = math.inf
+
+            for poly in SUC_GEOMS:
+                if not isinstance(poly, BaseGeometry):
+                    continue
+                dpt = pt.distance(poly)
+                if dpt < best_local_dp:
+                    best_local_dp = dpt
+                    best_local_poly = poly
+
+            if best_local_poly is None:
+                continue
+
+            if best_local_dp < best_dp:
+                best_dp   = best_local_dp
+                best_poly = best_local_poly
+
+        if best_poly is not None and best_dp <= MAX_SUC_DIST_M:
+            # Valid SUC found reasonably near the receivers of this nucleus
+            NUC_CLOSEST_SUC[nuc] = best_poly
+        else:
+            # Fallback: create a tiny "synthetic SUC" around the nucleus centroid
+            # (this basically reduces to rotor ↔ nucleus distance if no SUC is near)
+            NUC_CLOSEST_SUC[nuc] = nuc_centroid.buffer(50.0)  # 10.0 m radius
+
+            
+            
+    dist_rows = []
+    for t in TURBINES:
+        tname, xt, yt, lat, lon, plat_h, hub_h, rotor_d, shade_corr, cut_in, cut_out, model, power = (
+            t["id"], t["x"], t["y"], t.get("lat"), t.get("lon"),
+            t.get("elev_platform_m", 0.0), t.get("hub_height_m", 112.0),
+            t.get("rotor_diam_m", 172.0), t.get("solidity", 0.5),
+            t.get("cut_in_ms", 3.0), t.get("cut_out_ms", 25.0),
+            t.get("model", ""), t.get("rated_power_MW", 0.0)
+        )
+
+        circ = Point(xt, yt).buffer(rotor_d / 2.0, 128)
+
+        best_nuc = None
+        best_dd  = math.inf
+
+        for nuc, suc_poly in NUC_CLOSEST_SUC.items():
+            dd = circ.distance(suc_poly)
+            if dd < best_dd:
+                best_dd  = dd
+                best_nuc = nuc
+
+        if best_nuc is not None:
+            dist_rows.append((tname, best_nuc, int(round(best_dd))))
+                        
+        # --- ordena per distància ---
+        dist_rows.sort(key=lambda x: x[2])
+        
+        """
+        best_d, best_n = None, None
+        for nuc in RECEIVERS.keys():
+            #print(nuc)
+            rx, ry = nuc_rep_xy(nuc)
+            pt = Point(rx, ry)
+            best_poly, best_dp = None, 1e12
+            for poly in SUC_GEOMS:
+                dpt = pt.distance(poly)
+                if dpt < best_dp:
+                    best_poly, best_dp = poly, dpt
+            if best_poly is not None:
+                dd = circ.distance(best_poly)
+                if best_d is None or dd < best_d:
+                    best_d, best_n = dd, nuc
+                    print(nuc)
+        if best_d is not None:
+            #print(tname)
+            #print(best_n)
+            dist_rows.append((tname, best_n, int(round(best_d))))
+        """
+    
+    
     set_name = args.scenario
     profiles = build_profiles(set_name)
     
@@ -1106,33 +1227,6 @@ def run_set(args, suffix):
     #        worst_ldent = max(r[14] for r in rows)  # col 14 = Lden_tot
     #        metric_suc[nuc_name] = worst_ldent
     
-    # 3) DISTÀNCIES mínimes (cercle rotor → SUC més proper del nucli)
-    dist_rows = []
-    for t in TURBINES:
-        tname, xt, yt, lat, lon, plat_h, hub_h, rotor_d, shade_corr, cut_in, cut_out, model, power = (
-            t["id"], t["x"], t["y"], t.get("lat"), t.get("lon"),
-            t.get("elev_platform_m", 0.0), t.get("hub_height_m", 112.0),
-            t.get("rotor_diam_m", 172.0), t.get("solidity", 0.5),
-            t.get("cut_in_ms", 3.0), t.get("cut_out_ms", 25.0),
-            t.get("model", ""), t.get("rated_power_MW", 0.0)
-        )            
-        
-        circ = Point(xt, yt).buffer((rotor_d/2), 128)
-        best_d, best_n = None, None
-        for nuc in RECEIVERS.keys():
-            rx, ry = nuc_rep_xy(nuc)
-            pt = Point(rx, ry)
-            best_poly, best_dp = None, 1e12
-            for poly in SUC_GEOMS:
-                dpt = pt.distance(poly)
-                if dpt < best_dp:
-                    best_poly, best_dp = poly, dpt
-            if best_poly is not None:
-                dd = circ.distance(best_poly)
-                if best_d is None or dd < best_d:
-                    best_d, best_n = dd, nuc
-        if best_d is not None:
-            dist_rows.append((tname, best_n, int(round(best_d))))
 
     # 4) EXPORT CSV
     csv_name = f"TAULA_BASE_PRO_60_50_CAT_ANNUAL_{suffix}.csv"
@@ -1169,6 +1263,8 @@ def run_set(args, suffix):
     ax.clabel(cs, fmt=lambda v: f"{int(v)} dB", fontsize=8)
 
     # SUC acolorits pel Lden total (turb + preexistent)
+    #for nuc, suc_poly in NUC_CLOSEST_SUC.items():
+    """
     for nuc in RECEIVERS.keys():
         rx, ry = nuc_rep_xy(nuc)
         pt = Point(rx, ry)
@@ -1184,7 +1280,26 @@ def run_set(args, suffix):
             pc = PatchCollection(patches, facecolor=col, edgecolor="black", alpha=0.85, linewidths=0.8)
             ax.add_collection(pc)
             ax.text(rx+80, ry+50, f"{nuc}", fontsize=9, color="#1f77b4", weight="bold")
+    """
+    for nuc, best_poly in NUC_CLOSEST_SUC.items():
+        rx, ry = nuc_rep_xy(nuc)
+        geoms = best_poly.geoms if isinstance(best_poly, MultiPolygon) else [best_poly]
 
+        val = metric_suc.get(nuc, 0.0)
+        col = color_from_palette(val)
+
+        patches = [MplPolygon(np.asarray(g.exterior.coords)) for g in geoms]
+        pc = PatchCollection(
+            patches,
+            facecolor=col,
+            edgecolor="black",
+            alpha=0.85,
+            linewidths=0.8,
+        )
+        ax.add_collection(pc)
+
+        ax.text(rx + 80, ry + 50, f"{nuc}", fontsize=9,
+                color="#1f77b4", weight="bold")    
 
     # Turbines: cercle Ø172 m + creu + nom
     for t in TURBINES:
@@ -1341,6 +1456,7 @@ def run_set(args, suffix):
     dist_leg = ax_legex.legend(dist_patches, dist_labels, title="Distàncies mínimes rotor", loc="upper left",
                         frameon=True, framealpha=0.9, borderpad=0.6, labelspacing=0.4, prop={"size":8}, title_fontsize=9)
     
+    
     ax_legex.add_artist(dist_leg)
     
     """
@@ -1353,7 +1469,8 @@ def run_set(args, suffix):
     """
     
     png_name = f"MAPA_BASE_PRO_60_50_CAT_ANNUAL_{suffix}.png"
-    plt.savefig(png_name, dpi=220)
+    result_path = os.path.join(OUTPUT_DIR, png_name)        
+    plt.savefig(result_path, dpi=220)
     plt.show()
     #plt.close(fig)
 
@@ -1373,7 +1490,7 @@ if __name__ == "__main__":
         try:
             cfg = load_config_yaml(args.config)
             apply_yaml_overrides(cfg)
-            
+            ensure_output_dir(OUTPUT_DIR)
             # we need to make this available inside of every worker as well
             global BBOX_POLY
             BBOX_POLY = box(XMIN, YMIN, XMAX, YMAX)
@@ -1397,7 +1514,7 @@ if __name__ == "__main__":
 
     
     # Deriva un sufix si no s'ha passat explícitament
-    suf = args.suffix or args.scenario.upper()
+    suf = args.suffix or args.scenario.upper()    
     run_set(args, suf)
     cleanup_grid_memmap()
 

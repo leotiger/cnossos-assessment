@@ -15,7 +15,8 @@ TURBINES:
     cut_out_ms: 25.0
     model: "N175/6.0x"
     rated_power_MW: 6.23
-    LwA_octave_dB: [91.8, 98.6, 102.0, 102.5, 103.4, 101.3, 92.0, 75.5]
+    # LwA_total: 109.0          # ≈ 106 + 3 dB conservative as Nordex does not guarantee 106dB    
+    LwA_octave_dB: [92.1, 98.9, 102.3, 102.8, 103.7, 101.6, 92.3, 75.8]
   - id: "Y09"
     x: 348363
     y: 4598715
@@ -29,7 +30,8 @@ TURBINES:
     cut_out_ms: 25.0
     model: "N175/6.0x"
     rated_power_MW: 6.23
-    LwA_octave_dB: [91.8, 98.6, 102.0, 102.5, 103.4, 101.3, 92.0, 75.5]
+    # LwA_total: 109.0          # ≈ 106 + 3 dB conservative as Nordex does not guarantee 106dB    
+    LwA_octave_dB: [92.1, 98.9, 102.3, 102.8, 103.7, 101.6, 92.3, 75.8]
   - id: "Y05"
     x: 348718
     y: 4598000
@@ -43,7 +45,8 @@ TURBINES:
     cut_out_ms: 25.0
     model: "N175/6.0x"
     rated_power_MW: 6.23
-    LwA_octave_dB: [91.8, 98.6, 102.0, 102.5, 103.4, 101.3, 92.0, 75.5]
+    # LwA_total: 109.0          # ≈ 106 + 3 dB conservative as Nordex does not guarantee 106dB    
+    LwA_octave_dB: [92.1, 98.9, 102.3, 102.8, 103.7, 101.6, 92.3, 75.8]
   - id: "Y06"
     x: 349377
     y: 4597537
@@ -57,7 +60,8 @@ TURBINES:
     cut_out_ms: 25.0
     model: "N175/6.0x"
     rated_power_MW: 6.23
-    LwA_octave_dB: [91.8, 98.6, 102.0, 102.5, 103.4, 101.3, 92.0, 75.5]
+    # LwA_total: 109.0          # ≈ 106 + 3 dB conservative as Nordex does not guarantee 106dB    
+    LwA_octave_dB: [92.1, 98.9, 102.3, 102.8, 103.7, 101.6, 92.3, 75.8]
   - id: "Y07"
     x: 350011
     y: 4597190
@@ -71,7 +75,8 @@ TURBINES:
     cut_out_ms: 25.0
     model: "N175/6.0x"
     rated_power_MW: 6.23
-    LwA_octave_dB: [91.8, 98.6, 102.0, 102.5, 103.4, 101.3, 92.0, 75.5]
+    # LwA_total: 109.0          # ≈ 106 + 3 dB conservative as Nordex does not guarantee 106dB    
+    LwA_octave_dB: [92.1, 98.9, 102.3, 102.8, 103.7, 101.6, 92.3, 75.8]
   - id: "Y8B"
     x: 350526
     y: 4596948
@@ -85,7 +90,8 @@ TURBINES:
     cut_out_ms: 25.0
     model: "N175/6.0x"
     rated_power_MW: 6.23
-    LwA_octave_dB: [91.8, 98.6, 102.0, 102.5, 103.4, 101.3, 92.0, 75.5]
+    # LwA_total: 109.0          # ≈ 106 + 3 dB conservative as Nordex does not guarantee 106dB    
+    LwA_octave_dB: [92.1, 98.9, 102.3, 102.8, 103.7, 101.6, 92.3, 75.8]
     
 RECEIVERS:
   La Pobla de Ferran:

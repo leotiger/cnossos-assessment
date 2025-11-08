@@ -1,0 +1,295 @@
+DEM_PATH: DEM_clip_5m-rpglobal.tif
+GML_PATH: MUC_classificacio.gml
+
+TURBINES:
+  - id: "LF1"
+    x: 351481.874
+    y: 4596561.274
+    lat: 41.506864
+    lon: 1.220353
+    elev_platform_m: 2.0
+    hub_height_m: 78.0
+    rotor_diam_m: 90.0
+    solidity: 0.485
+    cut_in_ms: 3.0
+    cut_out_ms: 25.0
+    model: "Gamesa_2MW_G90"
+    rated_power_MW: 2.0
+    # LwA_total: 107.3          # ≈ 105.3 + 2 dB conservative
+    LwA_octave_dB: [88.5, 95.0, 100.2, 102.6, 101.6, 97.2, 89.2, 76.0]
+  - id: "LF2"
+    x:  351541.60
+    y: 4598543.72
+    lat: 41.524779
+    lon: 1.220619
+    elev_platform_m: 2.0
+    hub_height_m: 78.0
+    rotor_diam_m: 90.0
+    solidity: 0.485
+    cut_in_ms: 3.0
+    cut_out_ms: 25.0
+    model: "Gamesa_2MW_G90"
+    rated_power_MW: 2.0
+    # LwA_total: 107.3          # ≈ 105.3 + 2 dB conservative
+    LwA_octave_dB: [88.5, 95.0, 100.2, 102.6, 101.6, 97.2, 89.2, 76.0]
+  - id: "LF3"
+    x:  351852.91
+    y: 4598701.47
+    lat: 41.526193
+    lon: 1.224309
+    elev_platform_m: 2.0
+    hub_height_m: 78.0
+    rotor_diam_m: 90.0
+    solidity: 0.485
+    cut_in_ms: 3.0
+    cut_out_ms: 25.0
+    model: "Gamesa_2MW_G90"
+    rated_power_MW: 2.0
+    # LwA_total: 107.3          # ≈ 105.3 + 2 dB conservative
+    LwA_octave_dB: [88.5, 95.0, 100.2, 102.6, 101.6, 97.2, 89.2, 76.0]
+  - id: "LF4"
+    x:  351697.57
+    y: 4599247.22
+    lat: 41.531142
+    lon: 1.222314
+    elev_platform_m: 2.0
+    hub_height_m: 78.0
+    rotor_diam_m: 90.0
+    solidity: 0.485
+    cut_in_ms: 3.0
+    cut_out_ms: 25.0
+    model: "Gamesa_2MW_G90"
+    rated_power_MW: 2.0
+    # LwA_total: 107.3          # ≈ 105.3 + 2 dB conservative
+    LwA_octave_dB: [88.5, 95.0, 100.2, 102.6, 101.6, 97.2, 89.2, 76.0]
+  - id: "LF5"
+    x:  351825.42
+    y: 4599548.62
+    lat: 41.533879
+    lon: 1.223771
+    elev_platform_m: 2.0
+    hub_height_m: 78.0
+    rotor_diam_m: 90.0
+    solidity: 0.485
+    cut_in_ms: 3.0
+    cut_out_ms: 25.0
+    model: "Gamesa_2MW_G90"
+    rated_power_MW: 2.0
+    # LwA_total: 107.3          # ≈ 105.3 + 2 dB conservative
+    LwA_octave_dB: [88.5, 95.0, 100.2, 102.6, 101.6, 97.2, 89.2, 76.0]
+  - id: "LF6"
+    x:  351876.89
+    y: 4599970.28
+    lat: 41.537583
+    lon: 1.224370
+    elev_platform_m: 2.0
+    hub_height_m: 78.0
+    rotor_diam_m: 90.0
+    solidity: 0.485
+    cut_in_ms: 3.0
+    cut_out_ms: 25.0
+    model: "Gamesa_2MW_G90"
+    rated_power_MW: 2.0
+    # LwA_total: 107.3          # ≈ 105.3 + 2 dB conservative
+    LwA_octave_dB: [88.5, 95.0, 100.2, 102.6, 101.6, 97.2, 89.2, 76.0]
+  - id: "LF15"
+    x: 352301.677
+    y: 4597238.65
+    lat: 41.513131
+    lon: 1.230138
+    elev_platform_m: 2.0
+    hub_height_m: 78.0
+    rotor_diam_m: 90.0
+    solidity: 0.485
+    cut_in_ms: 3.0
+    cut_out_ms: 25.0
+    model: "Gamesa_2MW_G90"
+    rated_power_MW: 2.0
+    # LwA_total: 107.3          # ≈ 105.3 + 2 dB conservative
+    LwA_octave_dB: [88.5, 95.0, 100.2, 102.6, 101.6, 97.2, 89.2, 76.0]
+  - id: "LF14"
+    x: 352311.567
+    y: 4596959.06
+    lat: 41.510618
+    lon: 1.230251
+    elev_platform_m: 2.0
+    hub_height_m: 78.0
+    rotor_diam_m: 90.0
+    solidity: 0.485
+    cut_in_ms: 3.0
+    cut_out_ms: 25.0
+    model: "Gamesa_2MW_G90"
+    rated_power_MW: 2.0
+    # LwA_total: 107.3          # ≈ 105.3 + 2 dB conservative
+    LwA_octave_dB: [88.5, 95.0, 100.2, 102.6, 101.6, 97.2, 89.2, 76.0]
+  - id: "LF13"
+    x: 352259.391
+    y: 4596765.651
+    lat: 41.508850
+    lon: 1.229694
+    elev_platform_m: 2.0
+    hub_height_m: 78.0
+    rotor_diam_m: 90.0
+    solidity: 0.485
+    cut_in_ms: 3.0
+    cut_out_ms: 25.0
+    model: "Gamesa_2MW_G90"
+    rated_power_MW: 2.0
+    # LwA_total: 107.3          # ≈ 105.3 + 2 dB conservative
+    LwA_octave_dB: [88.5, 95.0, 100.2, 102.6, 101.6, 97.2, 89.2, 76.0]
+  - id: "LF12"
+    x: 352186.783
+    y: 4596580.185
+    lat: 41.507177
+    lon: 1.228894
+    elev_platform_m: 2.0
+    hub_height_m: 78.0
+    rotor_diam_m: 90.0
+    solidity: 0.485
+    cut_in_ms: 3.0
+    cut_out_ms: 25.0
+    model: "Gamesa_2MW_G90"
+    rated_power_MW: 2.0
+    # LwA_total: 107.3          # ≈ 105.3 + 2 dB conservative
+    LwA_octave_dB: [88.5, 95.0, 100.2, 102.6, 101.6, 97.2, 89.2, 76.0]
+  - id: "Y07"
+    x: 350011
+    y: 4597190
+    lat: 41.512064
+    lon: 1.202922
+    elev_platform_m: 2.0
+    hub_height_m: 112.0
+    rotor_diam_m: 172.0
+    solidity: 0.485
+    cut_in_ms: 3.0
+    cut_out_ms: 25.0
+    model: "N175/6.0x"
+    rated_power_MW: 6.23
+    # LwA_total: 109.0          # ≈ 106 + 3 dB conservative as Nordex does not guarantee 106dB    
+    LwA_octave_dB: [92.1, 98.9, 102.3, 102.8, 103.7, 101.6, 92.3, 75.8]
+  - id: "Y8B"
+    x: 350526
+    y: 4596948
+    lat: 41.510136
+    lon: 1.209102
+    elev_platform_m: 2.0
+    hub_height_m: 112.0
+    rotor_diam_m: 172.0
+    solidity: 0.485
+    cut_in_ms: 3.0
+    cut_out_ms: 25.0
+    model: "N175/6.0x"
+    rated_power_MW: 6.23
+    # LwA_total: 109.0          # ≈ 106 + 3 dB conservative as Nordex does not guarantee 106dB    
+    LwA_octave_dB: [92.1, 98.9, 102.3, 102.8, 103.7, 101.6, 92.3, 75.8]
+
+
+RECEIVERS:
+  El Fonoll:
+    pre:
+      Ld: 53.0
+      Le: 52.0
+      Ln: 49.0
+    points:
+      -
+        id: FON-1
+        x: 352466.20
+        y: 4598962.79
+        h_rec: 4.0
+        facade_db: 3.0
+        ambient:
+          Ld: 53.0
+          Le: 52.0
+          Ln: 49.0
+  La Sala de Comalats:
+    pre:
+      Ld: 45.4
+      Le: 45.4
+      Ln: 57.4
+    points:
+      -
+        id: LSC-1
+        x: 351251
+        y: 4597853
+        h_rec: 4.0
+        facade_db: 3.0
+        ambient:
+          Ld: 53.0
+          Le: 52.0
+          Ln: 49.0
+          
+P_FAV:
+  Ld: 0.3
+  Le: 0.45
+  Ln: 0.6
+  
+TEMP_XEMA:
+  DJF: 6.0
+  MAM: 12.0
+  JJA: 22.0
+  SON: 14.0
+  
+HR_LOCUS:
+  DJF: 78.0
+  MAM: 68.0
+  JJA: 58.0
+  SON: 72.0
+
+# Ponderacions estacionals CNOSSOS
+W_SEASON:
+  Ld:
+    DJF: 0.25
+    MAM: 0.25
+    JJA: 0.30
+    SON: 0.20
+  Le:
+    DJF: 0.25
+    MAM: 0.25
+    JJA: 0.25
+    SON: 0.25
+  Ln:
+    DJF: 0.30
+    MAM: 0.25
+    JJA: 0.20
+    SON: 0.25
+
+
+TOL_M: 1.0
+N_PROF_PER_KM: 60
+
+GROUND_GS: 0.0   # sòl dur (prop de la turbina)
+GROUND_GM: 0.6   # sòl mixt
+GROUND_GR: 0.2   # sòl tou 0.8; sòl mixt: 0.5 (prop del receptor); sòl dur, habitatges a tocar d’asfalt, roca, carrers, etc.: 0.0 a 0.4
+
+# ----------------------- PERFILS METEO (Sta. Coloma XEMA per T; bellcam per HR) -----------------------
+PRESS_KPA: 97.0  # ~500 a 800 m
+TEMP_INVTERM: 4.0 # Tenim molta inversió tèrmica a Passanant, Forès i els inverns són cada vegada menys freds...
+TEMP_CANVI: 0.0 # A l'estiu les temperatures apujen cada vegada més...
+
+H_RECEIVER: 4.0  # m (altura general)
+FACANA_DB: 3.0   # +3 dB a façana
+
+XMIN: 347500
+YMIN: 4594500 
+XMAX: 356500 
+YMAX: 4601500
+
+RADIUS_NORM_CAT: 500.0
+RADIUS_NORM_ESP: 1000.0
+
+LOS_MAX_DIST: 2000.0 # Dibuixar LOS tant sols si distancia inferior a 1200m
+GRID_STEP_M: 15.0  # 10.0 costa molt computar, per damunt de 25.0 no és suficent... (més fi, més cost)
+
+
+# --- Performance
+USE_MULTIPROC: true
+NUM_CORES: auto   # auto = usa get_optimal_workers(); o posa un enter en funció del hardware: 2,4,8...
+USE_NUMBA: true   # si habilites els kernels numèrics (LOS/difracció) amb Numba
+
+# --- Límits d'immissió sonora (Lden) per categoria d'ús del sòl ---
+# Cada clau defineix un "perfil" amb [Ld, Le, Ln] (en dB(A))
+LIMITS_SETS:
+  Sens_55: [55.0, 50.0, 45.0]
+  Sens_60: [60.0, 60.0, 50.0]   # Nou perfil (zones urbanes sensibles)
+  Sens_65:  [65.0, 60.0, 55.0]
+
