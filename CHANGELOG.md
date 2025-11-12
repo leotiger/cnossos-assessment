@@ -14,7 +14,7 @@
 6. [](#improved)
     * Add output directory to avoid overwriting results for diferent yamls and projects
 7. [](#improved)
-    * Add basic version information for tracebility
+    * Add basic version information for traceability
     
 # v0.1
 ## 2024-10-23
